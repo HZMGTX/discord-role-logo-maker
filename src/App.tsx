@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { Idea } from './assistant/generate';
 import { Toast, useToast } from './components/Toast';
 import { Header } from './components/layout/Header';
-import { ControlPanel } from './components/panel/ControlPanel';
+import { ControlPanel, type TabId } from './components/panel/ControlPanel';
 import { PresetGallery } from './components/presets/PresetGallery';
 import { ChatMock, MemberListMock } from './components/preview/DiscordMocks';
 import { PreviewSettingsBar } from './components/preview/PreviewSettingsBar';
@@ -31,6 +32,8 @@ export function App() {
   const [preview, setPreview] = useState<PreviewSettings>(initial.preview);
   const [exportSize, setExportSize] = useState<ExportSize>(256);
   const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<TabId>('ai');
+  const [assistantFocusToken, setAssistantFocusToken] = useState(0);
   const { toast, notify } = useToast();
   const iconUrl = useIconDataUrl(icon, 64);
 
@@ -65,6 +68,27 @@ export function App() {
     clearHash();
     setIcon(randomizeIcon());
   };
+
+  const askAi = () => {
+    setTab('ai');
+    setAssistantFocusToken((token) => token + 1);
+  };
+
+  const applyIdea = useCallback((idea: Idea) => {
+    clearHash();
+    setIcon(cloneIcon(idea.icon));
+    setPreview((current) => ({
+      ...current,
+      roleName: idea.roleName ?? current.roleName,
+      roleColor: idea.roleColor,
+    }));
+  }, []);
+
+  const applyIcon = useCallback((next: IconState, roleName?: string) => {
+    clearHash();
+    setIcon(next);
+    if (roleName) setPreview((current) => ({ ...current, roleName }));
+  }, []);
 
   const reset = () => {
     clearHash();
@@ -103,11 +127,16 @@ export function App() {
 
   return (
     <div className="app">
-      <Header onRandomize={randomize} onReset={reset} onShare={() => void share()} />
+      <Header onAskAi={askAi} onRandomize={randomize} onReset={reset} onShare={() => void share()} />
       <main className="main">
         <ControlPanel
+          tab={tab}
+          onTabChange={setTab}
           icon={icon}
           updateIcon={updateIcon}
+          assistantFocusToken={assistantFocusToken}
+          onApplyIdea={applyIdea}
+          onApplyIcon={applyIcon}
           preview={preview}
           exportSize={exportSize}
           onExportSizeChange={setExportSize}
