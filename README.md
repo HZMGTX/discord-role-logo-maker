@@ -6,7 +6,7 @@ Design your own Discord **role icon** in the browser: pick a shape, colors, an e
 
 ## Features
 
-- **AI assistant**: type something like "a gold crown for the server owner", "cute pink icon for the artists" or "neon hexagon for gamers" and get six complete designs, with an explanation of the choices. Then steer it with "make it darker", "add a border", "use a skull", "hexagon" or "make it red". It is a custom language-understanding engine that runs entirely in your browser: no external AI service, no API keys, no data leaves the page.
+- **AI assistant**: type something like "a gold crown for the server owner", "cute pink icon for the artists" or "neon hexagon for gamers" and get six complete designs, with an explanation of the choices. Then steer it with "make it darker", "add a border", "use a skull", "hexagon" or "make it red". Out of the box it uses a built-in language engine that runs in your browser (no API keys, nothing leaves the page). Add an API key and it switches to **smart mode**, where a Claude model understands anything you type. See [Smart mode](#smart-mode-optional).
 - **Shapes**: circle, rounded square, square, squircle, hexagon, shield, diamond, star, heart, badge, or no background at all.
 - **Fills**: solid color, linear gradient with angle, radial gradient, plus Discord's default role color palette as one-click swatches.
 - **Content**: 280+ curated emoji (paste any other emoji), text or initials in nine fonts with outline and letter spacing, 18 built-in symbols, or an uploaded image (PNG, JPG, GIF, WebP, SVG) that stays in your browser.
@@ -48,6 +48,18 @@ PLAYWRIGHT_MODULE_DIR=$(npm root -g) npm run smoke
 
 `PLAYWRIGHT_MODULE_DIR` points at a directory that contains the `playwright` package (a global `npm install -g playwright` works).
 
+## Smart mode (optional)
+
+Smart mode sends the description to a Claude model, which understands free-form language ("something that says 'we take pizza seriously' but keep it classy") and returns designs in the app's own format. It runs as a small server function (`api/assistant.ts`) so the key never reaches the browser; without a key the built-in engine is used and nothing else changes.
+
+1. Create an API key at [console.anthropic.com](https://console.anthropic.com/).
+2. In Vercel open the project, then **Settings → Environment Variables**, add `ANTHROPIC_API_KEY` with the key, and redeploy.
+3. Optionally add `ASSISTANT_MODEL` to pick a different model (default `claude-opus-5`; `claude-sonnet-5` or `claude-haiku-4-5` are cheaper).
+
+For local development copy `.env.example` to `.env.local` and fill in the key; `npm run dev` serves `/api/assistant` through the same code as Vercel.
+
+What to expect: each request costs a few cents with the default model (roughly 2,000 input and 1,500 output tokens), responses take a few seconds, and the function rate-limits each visitor to 20 requests per 10 minutes. If the model is unavailable, rate-limited or declines a request, the built-in engine answers instead and the reply says so. The assistant tab shows which engine is active.
+
 ## Deploy to Vercel
 
 Import the repository in Vercel. `vercel.json` already declares the Vite framework, the build command and the `dist` output, so no settings are needed. Every push to the production branch deploys automatically. Alternatively run `npx vercel` from a checkout.
@@ -56,13 +68,14 @@ The app is fully static; any static host works with the contents of `dist/`.
 
 ## How it works
 
-- The assistant (`src/assistant/`) is a rule-based engine: it tokenizes the description, pulls out colors (including "dark blue" or `#ff0000`), shapes, quoted text or initials, pasted emoji, style adjectives (cute, neon, minimal, professional, spooky…), and matches the rest against a lexicon of 40+ role themes (admin, moderator, gamer, artist, streamer…) plus a few hundred nouns that map to emoji. From those ingredients it composes several distinct icon states with a seeded random generator, so the same prompt always gives the same ideas and "More ideas" reseeds. Follow-up instructions are parsed the same way and applied as deltas to the current icon.
+- The built-in assistant (`src/assistant/`) is a rule-based engine: it tokenizes the description, pulls out colors (including "dark blue" or `#ff0000`), shapes, quoted text or initials, pasted emoji, negations ("no border", "don't use emoji"), style adjectives (cute, neon, minimal, professional, spooky…), and matches the rest against a lexicon of 40+ role themes (admin, moderator, gamer, artist, streamer…), a curated noun list and the full Unicode emoji keyword list (`src/emoji/keywords.ts`, about 3,900 words generated from CLDR by `scripts/build-emoji-keywords.mjs`). Word forms are matched loosely, so "coding" finds "code" and "gamers" finds "game". From those ingredients it composes several distinct icon states with a seeded random generator, so the same prompt always gives the same ideas and "More ideas" reseeds. Follow-up instructions are parsed the same way and applied as deltas to the current icon.
+- Smart mode (`src/server/assistant.ts`) asks a Claude model for the same data through a strict JSON schema (structured outputs), then validates every field with the same sanitizer the share links use, so a model answer can never produce an invalid icon.
 - A single canvas renderer (`src/render/renderIcon.ts`) draws the icon at any pixel size from normalized coordinates, so the big preview, the tiny Discord mock previews, the preset thumbnails and the exported PNG are pixel-identical.
 - Emoji artwork comes from [Twemoji](https://github.com/jdecked/twemoji), loaded from jsDelivr and re-served as same-origin blobs so the canvas never gets tainted. If the CDN is unreachable the system emoji font is used and the export tab says so.
 - Fonts come from Google Fonts. Uploaded images are downscaled to at most 1024 px and kept as data URLs in `localStorage`.
 - Share links encode the design in the URL hash (uploaded images are left out).
 
-Stack: Vite, React, TypeScript, no UI framework, Vitest for the pure logic.
+Stack: Vite, React, TypeScript, no UI framework, Vitest for the pure logic, the Anthropic SDK and Zod for smart mode.
 
 ## Credits and disclaimer
 

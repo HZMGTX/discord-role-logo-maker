@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { EXAMPLE_PROMPTS, generateIdeas, type AssistantResult, type Idea } from '../../assistant/generate';
+import { EXAMPLE_PROMPTS, generateIdeas, type Idea } from '../../assistant/generate';
 import { refineIcon } from '../../assistant/refine';
+import { RemoteError, remoteIdeas, remoteStatus, remoteTweak, type RemoteStatus } from '../../assistant/remote';
 import type { IconState } from '../../model/types';
 import { IconThumb } from '../controls/IconThumb';
 
@@ -18,6 +19,12 @@ interface Exchange {
   assistant: string;
 }
 
+interface IdeaSet {
+  reply: string;
+  ideas: Idea[];
+  engine: 'claude' | 'local';
+}
+
 const QUICK_TWEAKS: readonly string[] = [
   'Darker',
   'Lighter',
@@ -32,16 +39,38 @@ const QUICK_TWEAKS: readonly string[] = [
 const TWEAK_HELP =
   "I didn't catch that. Try things like “darker”, “bigger”, “add a border”, “make it a hexagon”, “use a crown”, “make it red” or paste an emoji.";
 
+const FALLBACK_NOTE = ' (Smart mode was unavailable just now, so the built-in engine answered.)';
+
 let exchangeId = 0;
+
+function fallbackNote(error: unknown): string {
+  if (error instanceof RemoteError && error.code === 'rate_limited') {
+    return ' (Smart mode is taking a short break because of heavy use, so the built-in engine answered.)';
+  }
+  return FALLBACK_NOTE;
+}
 
 export function AssistantTab({ icon, focusToken, onApplyIdea, onApplyIcon }: AssistantTabProps) {
   const [prompt, setPrompt] = useState('');
+  const [lastPrompt, setLastPrompt] = useState('');
   const [tweak, setTweak] = useState('');
   const [seed, setSeed] = useState(0);
-  const [result, setResult] = useState<AssistantResult | null>(null);
+  const [result, setResult] = useState<IdeaSet | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [log, setLog] = useState<Exchange[]>([]);
+  const [remote, setRemote] = useState<RemoteStatus | null>(null);
+  const [busy, setBusy] = useState<'ideas' | 'tweak' | null>(null);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void remoteStatus().then((status) => {
+      if (!cancelled) setRemote(status);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (focusToken > 0) promptRef.current?.focus();
@@ -52,26 +81,69 @@ export function AssistantTab({ icon, focusToken, onApplyIdea, onApplyIcon }: Ass
     setLog((current) => [...current, { id: exchangeId, user, assistant }].slice(-4));
   };
 
-  const generate = (text: string, nextSeed: number) => {
-    const trimmed = text.trim();
-    if (!trimmed) {
-      promptRef.current?.focus();
-      return;
-    }
-    const next = generateIdeas(trimmed, nextSeed);
+  const showIdeas = (next: IdeaSet, userText: string) => {
     setResult(next);
-    setSeed(nextSeed);
     const first = next.ideas[0];
     if (first) {
       onApplyIdea(first);
       setSelected(first.id);
     }
-    say(nextSeed === 0 ? trimmed : `${trimmed} (more ideas)`, next.reply);
+    say(userText, next.reply);
   };
 
-  const applyTweak = (text: string) => {
+  const generate = async (text: string, nextSeed: number) => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || busy) {
+      if (!trimmed) promptRef.current?.focus();
+      return;
+    }
+    setLastPrompt(trimmed);
+    setSeed(nextSeed);
+    const userText = nextSeed === 0 ? trimmed : `${trimmed} (more ideas)`;
+    if (remote?.enabled) {
+      setBusy('ideas');
+      try {
+        const { reply, ideas } = await remoteIdeas(trimmed, 6, nextSeed);
+        showIdeas({ reply, ideas, engine: 'claude' }, userText);
+        return;
+      } catch (error) {
+        const local = generateIdeas(trimmed, nextSeed);
+        showIdeas({ reply: local.reply + fallbackNote(error), ideas: local.ideas, engine: 'local' }, userText);
+        return;
+      } finally {
+        setBusy(null);
+      }
+    }
+    const local = generateIdeas(trimmed, nextSeed);
+    showIdeas({ reply: local.reply, ideas: local.ideas, engine: 'local' }, userText);
+  };
+
+  const applyTweak = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || busy) return;
+    setTweak('');
+    if (remote?.enabled) {
+      setBusy('tweak');
+      try {
+        const refined = await remoteTweak(icon, trimmed);
+        onApplyIcon(refined.icon, refined.roleName);
+        setSelected(null);
+        say(trimmed, refined.reply);
+        return;
+      } catch (error) {
+        const refined = refineIcon(icon, trimmed);
+        if (refined) {
+          onApplyIcon(refined.icon, refined.roleName);
+          setSelected(null);
+          say(trimmed, refined.reply + fallbackNote(error));
+        } else {
+          say(trimmed, TWEAK_HELP + fallbackNote(error));
+        }
+        return;
+      } finally {
+        setBusy(null);
+      }
+    }
     const refined = refineIcon(icon, trimmed);
     if (refined) {
       onApplyIcon(refined.icon, refined.roleName);
@@ -80,22 +152,30 @@ export function AssistantTab({ icon, focusToken, onApplyIdea, onApplyIcon }: Ass
     } else {
       say(trimmed, TWEAK_HELP);
     }
-    setTweak('');
   };
 
   const onPromptKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
-      generate(prompt, 0);
+      void generate(prompt, 0);
     }
   };
+
+  const engineLabel =
+    remote === null ? 'checking…' : remote.enabled ? 'smart mode · Claude' : 'built-in engine';
+  const engineTitle =
+    remote?.enabled
+      ? `A ${remote.model ?? 'Claude'} model reads your description; the built-in engine takes over if it is unavailable.`
+      : 'A built-in language engine runs in your browser. Add an API key on the server to turn on smart mode.';
 
   return (
     <>
       <div className="section">
         <h2 className="section__title">
           AI assistant
-          <span className="card__hint">runs in your browser</span>
+          <span className="card__hint" title={engineTitle} data-testid="assistant-engine">
+            {engineLabel}
+          </span>
         </h2>
         <p className="assistant__intro">
           Tell me who the role is for and I&apos;ll design a few icons. Mention a color, a mood, a
@@ -119,13 +199,20 @@ export function AssistantTab({ icon, focusToken, onApplyIdea, onApplyIcon }: Ass
           <button
             type="button"
             className="btn btn--primary"
-            onClick={() => generate(prompt, 0)}
+            onClick={() => void generate(prompt, 0)}
+            disabled={busy !== null}
+            aria-busy={busy === 'ideas'}
             data-testid="assistant-generate"
           >
-            Generate ideas
+            {busy === 'ideas' ? 'Thinking…' : 'Generate ideas'}
           </button>
-          {result && (
-            <button type="button" className="btn" onClick={() => generate(result.parsed.raw, seed + 1)}>
+          {result && lastPrompt && (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void generate(lastPrompt, seed + 1)}
+              disabled={busy !== null}
+            >
               More ideas
             </button>
           )}
@@ -136,9 +223,10 @@ export function AssistantTab({ icon, focusToken, onApplyIdea, onApplyIcon }: Ass
               key={example}
               type="button"
               className="chip"
+              disabled={busy !== null}
               onClick={() => {
                 setPrompt(example);
-                generate(example, 0);
+                void generate(example, 0);
               }}
             >
               {example}
@@ -155,6 +243,13 @@ export function AssistantTab({ icon, focusToken, onApplyIdea, onApplyIcon }: Ass
               <p className="bubble bubble--assistant">{exchange.assistant}</p>
             </div>
           ))}
+          {busy && (
+            <div className="chat-log__exchange" aria-hidden="true">
+              <p className="bubble bubble--assistant bubble--thinking">
+                {busy === 'ideas' ? 'Designing ideas…' : 'Applying your tweak…'}
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -162,7 +257,9 @@ export function AssistantTab({ icon, focusToken, onApplyIdea, onApplyIcon }: Ass
         <div className="section">
           <h2 className="section__title">
             Ideas
-            <span className="card__hint">click to load</span>
+            <span className="card__hint">
+              {result.engine === 'claude' ? 'designed by Claude · click to load' : 'click to load'}
+            </span>
           </h2>
           <div className="ideas" role="group" aria-label="Generated ideas">
             {result.ideas.map((idea, index) => (
@@ -196,19 +293,32 @@ export function AssistantTab({ icon, focusToken, onApplyIdea, onApplyIcon }: Ass
             className="input"
             placeholder="e.g. make it darker, add a border, use a skull"
             value={tweak}
+            disabled={busy !== null}
             onChange={(event) => setTweak(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') applyTweak(tweak);
+              if (event.key === 'Enter') void applyTweak(tweak);
             }}
             data-testid="assistant-tweak"
           />
-          <button type="button" className="btn" onClick={() => applyTweak(tweak)} data-testid="assistant-apply">
-            Apply
+          <button
+            type="button"
+            className="btn"
+            onClick={() => void applyTweak(tweak)}
+            disabled={busy !== null}
+            data-testid="assistant-apply"
+          >
+            {busy === 'tweak' ? 'Thinking…' : 'Apply'}
           </button>
         </div>
         <div className="chip-row" role="group" aria-label="Quick tweaks">
           {QUICK_TWEAKS.map((quick) => (
-            <button key={quick} type="button" className="chip" onClick={() => applyTweak(quick)}>
+            <button
+              key={quick}
+              type="button"
+              className="chip"
+              disabled={busy !== null}
+              onClick={() => void applyTweak(quick)}
+            >
               {quick}
             </button>
           ))}

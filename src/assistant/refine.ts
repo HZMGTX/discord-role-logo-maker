@@ -1,8 +1,8 @@
 import { cloneIcon } from '../model/defaults';
 import { randomizeIcon } from '../model/random';
 import { sanitizeIcon } from '../model/serialize';
-import { RANGES, SHAPE_LABELS, type Content, type IconState } from '../model/types';
-import { darken, lighten } from '../render/color';
+import { RANGES, SHAPE_LABELS, type Content, type IconState, type SymbolId } from '../model/types';
+import { darken, lighten, luminance } from '../render/color';
 import { SYMBOLS } from '../render/symbols';
 import { findKeyword, isNegated, parsePrompt, type ParsedPrompt } from './parse';
 
@@ -14,11 +14,38 @@ export interface Refinement {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-function has(tokens: readonly string[], words: readonly string[]): boolean {
+function has(
+  tokens: readonly string[],
+  words: readonly string[],
+  boundaries: ReadonlySet<number> = new Set(),
+): boolean {
   return words.some((word) => {
     const index = findKeyword(tokens, word);
-    return index >= 0 && !isNegated(tokens, index);
+    return index >= 0 && !isNegated(tokens, index, boundaries);
   });
+}
+
+const EMOJI_TO_SYMBOL: Readonly<Record<string, SymbolId>> = {
+  '🛡️': 'shield', '👑': 'crown', '⭐': 'star', '🌟': 'star', '❤️': 'heart', '💖': 'heart', '⚡': 'bolt',
+  '✅': 'check', '☑️': 'check', '❌': 'cross', '⚙️': 'gear', '💎': 'gem', '⚔️': 'sword', '🗡️': 'sword',
+  '💀': 'skull', '☠️': 'skull', '🎵': 'note', '🎶': 'note', '💻': 'code', '🔥': 'flame', '🌙': 'moon',
+  '🐾': 'paw', '🏆': 'trophy', '🔑': 'key', '🗝️': 'key',
+};
+
+const SYMBOL_TO_EMOJI: Readonly<Record<SymbolId, string>> = {
+  crown: '👑', shield: '🛡️', star: '⭐', heart: '❤️', bolt: '⚡', check: '✅', cross: '❌', gear: '⚙️',
+  gem: '💎', sword: '⚔️', skull: '💀', note: '🎵', code: '💻', flame: '🔥', moon: '🌙', paw: '🐾',
+  trophy: '🏆', key: '🔑',
+};
+
+const POLISH_WORDS: readonly string[] = [
+  'better', 'nicer', 'improve', 'improved', 'polish', 'polished', 'prettier', 'cooler', 'fancier', 'pop',
+  'upgrade', 'enhance', 'enhanced', 'spice', 'jazz', 'refine', 'finish', 'touch up',
+];
+
+function foregroundFor(icon: IconState): string {
+  const light = luminance(icon.fill.color1) > 0.45 && (icon.fill.type === 'solid' || luminance(icon.fill.color2) > 0.45);
+  return light ? darken(icon.fill.color2, 0.5) : '#ffffff';
 }
 
 function joinChanges(changes: readonly string[]): string {
@@ -78,18 +105,20 @@ function pickContent(parsed: ParsedPrompt, current: Content): { content: Content
  */
 export function refineIcon(current: IconState, prompt: string): Refinement | null {
   const parsed = parsePrompt(prompt);
-  const { tokens } = parsed;
+  const { tokens: words, boundaries } = parsed;
+  const tokens = words;
+  const say = (list: readonly string[]) => has(tokens, list, boundaries);
   const icon = cloneIcon(current);
   const changes: string[] = [];
   let roleName: string | undefined;
 
-  if (has(tokens, ['random', 'surprise', 'shuffle', 'reroll', 'something else', 'anything'])) {
+  if (say(['random', 'surprise', 'shuffle', 'reroll', 'something else', 'anything'])) {
     return { icon: randomizeIcon(), reply: 'Rolled a fresh random design.' };
   }
 
   // Colors and brightness
-  const mentionsContent = has(tokens, ['icon', 'symbol', 'text', 'letters', 'letter', 'glyph', 'content', 'foreground']);
-  const mentionsBorder = has(tokens, ['border', 'outline', 'ring']);
+  const mentionsContent = say(['icon', 'symbol', 'text', 'letters', 'letter', 'glyph', 'content', 'foreground']);
+  const mentionsBorder = say(['border', 'outline', 'ring']);
   const firstColor = parsed.colors[0];
   const secondColor = parsed.colors[1];
   if (parsed.contentColor) {
@@ -121,44 +150,44 @@ export function refineIcon(current: IconState, prompt: string): Refinement | nul
       icon.fill.color2 = icon.fill.type === 'solid' ? firstColor.hex : darken(firstColor.hex, 0.35);
       changes.push(`made it ${firstColor.name}`);
     }
-  } else if (has(tokens, ['darker', 'dark', 'deeper', 'moodier', 'dimmer'])) {
+  } else if (say(['darker', 'dark', 'deeper', 'moodier', 'dimmer'])) {
     icon.fill.color1 = darken(icon.fill.color1, 0.25);
     icon.fill.color2 = darken(icon.fill.color2, 0.25);
     changes.push('made it darker');
-  } else if (has(tokens, ['lighter', 'brighter', 'paler', 'softer'])) {
+  } else if (say(['lighter', 'brighter', 'paler', 'softer'])) {
     icon.fill.color1 = lighten(icon.fill.color1, 0.2);
     icon.fill.color2 = lighten(icon.fill.color2, 0.2);
     changes.push('made it lighter');
   }
 
-  if (has(tokens, ['swap', 'flip', 'invert', 'reverse'])) {
+  if (say(['swap', 'flip', 'invert', 'reverse'])) {
     [icon.fill.color1, icon.fill.color2] = [icon.fill.color2, icon.fill.color1];
     changes.push('swapped the colors');
   }
 
   // Size, rotation, position
-  if (has(tokens, ['bigger', 'larger', 'big', 'huge', 'zoom', 'enlarge'])) {
+  if (say(['bigger', 'larger', 'big', 'huge', 'zoom', 'enlarge'])) {
     icon.transform.scale = clamp(icon.transform.scale + 0.15, RANGES.scale.min, RANGES.scale.max);
     changes.push('made the content bigger');
-  } else if (has(tokens, ['smaller', 'tiny', 'small', 'shrink', 'reduce'])) {
+  } else if (say(['smaller', 'tiny', 'small', 'shrink', 'reduce'])) {
     icon.transform.scale = clamp(icon.transform.scale - 0.15, RANGES.scale.min, RANGES.scale.max);
     changes.push('made the content smaller');
   }
-  if (has(tokens, ['rotate', 'rotated', 'tilt', 'tilted', 'spin', 'angle'])) {
+  if (say(['rotate', 'rotated', 'tilt', 'tilted', 'spin', 'angle'])) {
     const amount = tokens.map(Number).find((n) => Number.isFinite(n) && n !== 0) ?? 15;
-    const direction = has(tokens, ['left', 'counter', 'anticlockwise', 'counterclockwise']) ? -1 : 1;
+    const direction = say(['left', 'counter', 'anticlockwise', 'counterclockwise']) ? -1 : 1;
     icon.transform.rotation = clamp(icon.transform.rotation + amount * direction, RANGES.rotation.min, RANGES.rotation.max);
     changes.push(`rotated it ${Math.round(amount)}°`);
   }
-  if (has(tokens, ['move', 'shift', 'nudge', 'push', 'slide'])) {
+  if (say(['move', 'shift', 'nudge', 'push', 'slide'])) {
     const step = 0.08;
-    if (has(tokens, ['left'])) icon.transform.x = clamp(icon.transform.x - step, RANGES.offset.min, RANGES.offset.max);
-    if (has(tokens, ['right'])) icon.transform.x = clamp(icon.transform.x + step, RANGES.offset.min, RANGES.offset.max);
-    if (has(tokens, ['up', 'higher'])) icon.transform.y = clamp(icon.transform.y - step, RANGES.offset.min, RANGES.offset.max);
-    if (has(tokens, ['down', 'lower'])) icon.transform.y = clamp(icon.transform.y + step, RANGES.offset.min, RANGES.offset.max);
+    if (say(['left'])) icon.transform.x = clamp(icon.transform.x - step, RANGES.offset.min, RANGES.offset.max);
+    if (say(['right'])) icon.transform.x = clamp(icon.transform.x + step, RANGES.offset.min, RANGES.offset.max);
+    if (say(['up', 'higher'])) icon.transform.y = clamp(icon.transform.y - step, RANGES.offset.min, RANGES.offset.max);
+    if (say(['down', 'lower'])) icon.transform.y = clamp(icon.transform.y + step, RANGES.offset.min, RANGES.offset.max);
     changes.push('nudged the content');
   }
-  if (has(tokens, ['center', 'centre', 'centered', 'recenter'])) {
+  if (say(['center', 'centre', 'centered', 'recenter'])) {
     icon.transform.x = 0;
     icon.transform.y = 0;
     icon.transform.rotation = 0;
@@ -167,10 +196,10 @@ export function refineIcon(current: IconState, prompt: string): Refinement | nul
 
   // Effects
   if (parsed.flags.border === true) {
-    if (has(tokens, ['thicker', 'thick', 'bolder', 'wider'])) {
+    if (say(['thicker', 'thick', 'bolder', 'wider'])) {
       icon.border.width = clamp(Math.max(icon.border.width, 0.03) + 0.02, 0, RANGES.borderWidth.max);
       changes.push('thickened the border');
-    } else if (has(tokens, ['thinner', 'thin', 'subtle', 'narrower'])) {
+    } else if (say(['thinner', 'thin', 'subtle', 'narrower'])) {
       icon.border.width = clamp(icon.border.width - 0.02, 0.01, RANGES.borderWidth.max);
       changes.push('thinned the border');
     } else if (icon.border.width === 0) {
@@ -185,7 +214,7 @@ export function refineIcon(current: IconState, prompt: string): Refinement | nul
     icon.shadow.enabled = parsed.flags.shadow;
     changes.push(parsed.flags.shadow ? 'added a shadow' : 'removed the shadow');
   }
-  if (has(tokens, ['glow', 'glowing', 'neon'])) {
+  if (say(['glow', 'glowing', 'neon'])) {
     icon.shadow = { enabled: true, blur: 0.08, opacity: 0.6, dx: 0, dy: 0, color: icon.fill.color1 };
     changes.push('added a glow');
   }
@@ -207,6 +236,40 @@ export function refineIcon(current: IconState, prompt: string): Refinement | nul
     changes.push(parsed.shape === 'none' ? 'removed the background' : `changed the shape to a ${SHAPE_LABELS[parsed.shape].toLowerCase()}`);
   }
 
+  // "Make it better": add the finishing touches it doesn't have yet
+  if (say(POLISH_WORDS)) {
+    const touches: string[] = [];
+    if (icon.shape !== 'none') {
+      if (icon.border.width === 0) {
+        icon.border = { width: 0.04, color: foregroundFor(icon) };
+        touches.push('a border');
+      }
+      if (icon.fill.type === 'solid') {
+        icon.fill.type = 'linear';
+        icon.fill.color2 = darken(icon.fill.color1, 0.35);
+        icon.fill.angle = 135;
+        touches.push('a gradient');
+      }
+      if (!icon.gloss) {
+        icon.gloss = true;
+        touches.push('a glossy highlight');
+      }
+      if (!icon.shadow.enabled) {
+        icon.shadow.enabled = true;
+        touches.push('a soft shadow');
+      }
+    }
+    if ('shadow' in icon.content && !icon.content.shadow) {
+      icon.content.shadow = true;
+      touches.push('a content shadow');
+    }
+    changes.push(
+      touches.length > 0
+        ? `polished it with ${joinChanges(touches)}`
+        : 'it already has all the finishing touches, so I left the look as is',
+    );
+  }
+
   // Content
   const picked = pickContent(parsed, icon.content);
   if (picked) {
@@ -214,6 +277,17 @@ export function refineIcon(current: IconState, prompt: string): Refinement | nul
     changes.push(`switched the icon to ${picked.label}`);
     const theme = parsed.themes[0]?.theme;
     if (theme && !parsed.emoji && !parsed.text) roleName = theme.label;
+  }
+
+  // "No emoji" / "use an emoji": swap between emoji art and drawn symbols
+  if (parsed.flags.prefer === 'symbol' && icon.content.kind === 'emoji') {
+    const symbol = EMOJI_TO_SYMBOL[icon.content.emoji] ?? parsed.themes[0]?.theme.symbols[0] ?? 'star';
+    icon.content = { kind: 'symbol', symbol, color: foregroundFor(icon), shadow: icon.content.shadow };
+    changes.push(`swapped the emoji for a drawn ${SYMBOLS[symbol].label.toLowerCase()}`);
+  } else if (parsed.flags.prefer === 'emoji' && icon.content.kind === 'symbol') {
+    const emoji = SYMBOL_TO_EMOJI[icon.content.symbol];
+    icon.content = { kind: 'emoji', emoji, shadow: icon.content.shadow };
+    changes.push(`swapped the symbol for ${emoji}`);
   }
 
   // Style words without explicit colors: apply the style's look

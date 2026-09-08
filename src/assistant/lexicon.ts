@@ -159,7 +159,7 @@ export const THEMES: readonly Theme[] = [
   {
     id: 'admin',
     label: 'Admin',
-    keywords: ['admin', 'administrator', 'crown', 'owner', 'founder', 'leader', 'king', 'queen', 'boss', 'ceo', 'chief', 'royal', 'royalty', 'ruler', 'emperor', 'empress', 'monarch', 'prince', 'princess', 'head'],
+    keywords: ['admin', 'administrator', 'crown', 'owner', 'manager', 'managers', 'management', 'director', 'executive', 'supervisor', 'lead', 'leads', 'coordinator', 'president', 'coowner', 'co-owner', 'founder', 'leader', 'king', 'queen', 'boss', 'ceo', 'chief', 'royal', 'royalty', 'ruler', 'emperor', 'empress', 'monarch', 'prince', 'princess', 'head'],
     emoji: ['👑', '🫅', '🏰'],
     symbols: ['crown'],
     palettes: [['#ff5f5f', '#b3121b'], ['#f1c40f', '#e67e22'], ['#9b59b6', '#71368a']],
@@ -688,7 +688,7 @@ export const STYLES: readonly Style[] = [
   {
     id: 'cute',
     label: 'cute',
-    keywords: ['cute', 'kawaii', 'adorable', 'soft', 'pastel', 'sweet', 'lovely', 'uwu', 'cutesy', 'aesthetic'],
+    keywords: ['cute', 'cuter', 'kawaii', 'adorable', 'soft', 'pastel', 'sweet', 'lovely', 'uwu', 'cutesy', 'aesthetic'],
     palettes: [['#ffb3d9', '#ff73fa'], ['#c8a2ff', '#9b59b6'], ['#a8e6ff', '#3498db'], ['#ffd6a5', '#ff9e7a']],
     shapes: ['circle', 'heart', 'roundedSquare', 'squircle'],
     gloss: true,
@@ -698,7 +698,7 @@ export const STYLES: readonly Style[] = [
   {
     id: 'bold',
     label: 'bold',
-    keywords: ['bold', 'strong', 'heavy', 'chunky', 'sturdy', 'tough', 'hardcore', 'brutal', 'aggressive', 'intense'],
+    keywords: ['bold', 'bolder', 'strong', 'heavy', 'chunky', 'sturdy', 'tough', 'hardcore', 'brutal', 'aggressive', 'intense'],
     shapes: ['hexagon', 'square', 'shield'],
     fillType: 'linear',
     border: true,
@@ -724,7 +724,7 @@ export const STYLES: readonly Style[] = [
   {
     id: 'minimal',
     label: 'minimal',
-    keywords: ['minimal', 'minimalist', 'simple', 'clean', 'flat', 'plain', 'basic', 'subtle', 'understated', 'modern', 'sleek'],
+    keywords: ['minimal', 'minimalist', 'simple', 'simpler', 'cleaner', 'clean', 'flat', 'plain', 'basic', 'subtle', 'understated', 'modern', 'sleek'],
     fillType: 'solid',
     border: false,
     gloss: false,
@@ -734,7 +734,7 @@ export const STYLES: readonly Style[] = [
   {
     id: 'fancy',
     label: 'fancy',
-    keywords: ['fancy', 'elegant', 'royal', 'luxury', 'luxurious', 'premium', 'rich', 'classy', 'posh', 'regal', 'majestic', 'noble', 'prestige', 'prestigious', 'golden', 'glam', 'glamorous', 'bling'],
+    keywords: ['fancy', 'fancier', 'elegant', 'royal', 'luxury', 'luxurious', 'premium', 'rich', 'classy', 'posh', 'regal', 'majestic', 'noble', 'prestige', 'prestigious', 'golden', 'glam', 'glamorous', 'bling'],
     palettes: [['#f1c40f', '#e67e22'], ['#ffd166', '#c27c0e'], ['#f9e79f', '#c27c0e']],
     shapes: ['badge', 'shield', 'circle'],
     gloss: true,

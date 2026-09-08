@@ -5,7 +5,7 @@ import { luminance } from '../render/color';
 import { generateIdeas } from './generate';
 import { parsePrompt } from './parse';
 import { refineIcon } from './refine';
-import { stripPlural, tokenize } from './tokenize';
+import { sameWord, stripPlural, tokenize, wordForms } from './tokenize';
 
 describe('tokenize', () => {
   it('splits words, pulls out quotes, hex colors and emoji', () => {
@@ -14,6 +14,18 @@ describe('tokenize', () => {
     expect(t.quoted).toEqual(['VIP']);
     expect(t.hexes).toEqual(['#ff0000']);
     expect(t.emoji).toEqual(['🐸']);
+  });
+
+  it('matches word forms', () => {
+    expect(sameWord('coding', 'code')).toBe(true);
+    expect(sameWord('gamers', 'game')).toBe(true);
+    expect(sameWord('verified', 'verify')).toBe(true);
+    expect(sameWord('streamer', 'stream')).toBe(true);
+    expect(sameWord('sleepy', 'sleep')).toBe(true);
+    expect(sameWord('friendly', 'friend')).toBe(true);
+    expect(sameWord('edgy', 'edge')).toBe(false);
+    expect(sameWord('better', 'bet')).toBe(false);
+    expect(wordForms('king')).toEqual(['king']);
   });
 
   it('singularizes plurals', () => {
@@ -74,6 +86,27 @@ describe('parsePrompt', () => {
     const p = parsePrompt('something for dog lovers');
     expect(p.emojiWords[0]?.word).toBe('dog');
     expect(p.themes[0]?.theme.id).toBe('love');
+  });
+
+  it('scopes negation to the clause and stops at conjunctions', () => {
+    expect(parsePrompt("don't make it use normal emoji").flags.prefer).toBe('symbol');
+    expect(parsePrompt("make it better but don't use emoji").flags.prefer).toBe('symbol');
+    expect(parsePrompt('use an emoji instead').flags.prefer).toBe('emoji');
+    expect(parsePrompt('no emoji, make it a crown').themes[0]?.theme.id).toBe('admin');
+    expect(parsePrompt('not a shield but a star shape').shape).toBe('star');
+    expect(parsePrompt('without a border make it blue').colors[0]?.name).toBe('blue');
+    expect(parsePrompt('nothing fancy, just a moderator icon').styles).toEqual([]);
+    const p = tokenize('no border, dark blue hexagon');
+    expect(Array.from(p.boundaries)).toEqual([2]);
+  });
+
+  it('falls back to the Unicode emoji annotations for unknown nouns', () => {
+    const p = parsePrompt('an icon for the tacos and burritos committee');
+    expect(p.emojiWords.map((w) => w.word)).toEqual(['taco', 'burrito']);
+    const briefcase = parsePrompt('briefcase for the managers');
+    expect(briefcase.emojiWords[0]).toMatchObject({ word: 'briefcase', source: 'unicode' });
+    expect(briefcase.themes[0]?.theme.id).toBe('admin');
+    expect(parsePrompt('magnifying glass for the detectives').emojiWords[0]?.emoji[0]).toMatch(/🔍|🔎/);
   });
 
   it('reads transparent backgrounds and fill words', () => {
@@ -194,6 +227,18 @@ describe('refineIcon', () => {
     const recolored = refineIcon(symbolIcon, 'make the icon gold');
     expect(recolored?.icon.content).toMatchObject({ kind: 'symbol', color: '#f1c40f' });
     expect(recolored?.icon.fill.color1).toBe(DEFAULT_ICON.fill.color1);
+  });
+
+  it('polishes on "better" and swaps emoji for drawn symbols on request', () => {
+    const result = refineIcon(DEFAULT_ICON, "Make it better but don't make it use normal emoji");
+    expect(result?.icon.content).toMatchObject({ kind: 'symbol', symbol: 'crown' });
+    expect(result?.icon.gloss).toBe(true);
+    expect(result?.icon.shadow.enabled).toBe(true);
+    expect(result?.reply).toMatch(/^Polished it with .* and swapped the emoji for a drawn crown\.$/);
+    const back = refineIcon(result!.icon, 'use an emoji instead');
+    expect(back?.icon.content).toMatchObject({ kind: 'emoji', emoji: '👑' });
+    const again = refineIcon(result!.icon, 'make it better');
+    expect(again?.reply).toMatch(/already has all the finishing touches/);
   });
 
   it('returns null when nothing is understood', () => {

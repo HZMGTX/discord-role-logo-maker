@@ -144,11 +144,12 @@ function buildIngredients(parsed: ParsedPrompt): Ingredients {
   } else {
     const emojiList: string[] = [];
     const symbolList: SymbolId[] = [];
-    for (const word of parsed.emojiWords) emojiList.push(...word.emoji);
+    for (const word of parsed.emojiWords) if (word.source === 'curated') emojiList.push(...word.emoji);
     if (theme) {
       emojiList.push(...theme.emoji);
       symbolList.push(...theme.symbols);
     }
+    for (const word of parsed.emojiWords) if (word.source === 'unicode') emojiList.push(...word.emoji);
     if (secondary && parsed.emojiWords.length === 0) {
       emojiList.push(...secondary.emoji.slice(0, 1));
       symbolList.push(...secondary.symbols.slice(0, 1));
@@ -318,11 +319,11 @@ export function generateIdeas(prompt: string, seed = 0, count = 6): AssistantRes
   const ingredients = buildIngredients(parsed);
   const { contents, palettes, shapes, fills } = ingredients;
   const base = hashString(prompt.trim().toLowerCase());
-  const firstWord = parsed.emojiWords[0]?.word;
+  const firstWord = parsed.emojiWords[0];
   const themeScore = parsed.themes[0]?.score ?? 0;
   const roleName =
-    firstWord && themeScore <= 1 && !parsed.text
-      ? capitalize(firstWord)
+    firstWord && (firstWord.source === 'curated' || !ingredients.theme) && themeScore <= 1 && !parsed.text
+      ? capitalize(firstWord.word)
       : (ingredients.theme?.label ?? parsed.text ?? null);
   const ideas: Idea[] = [];
   const seen = new Set<string>();

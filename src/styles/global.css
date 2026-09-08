@@ -1218,3 +1218,15 @@ textarea:focus-visible,
   text-align: center;
   overflow-wrap: anywhere;
 }
+
+.bubble--thinking {
+  color: var(--text-muted);
+  background: linear-gradient(90deg, var(--bg), var(--surface-raised), var(--bg));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.chip:disabled,
+.btn:disabled {
+  cursor: progress;
+}
