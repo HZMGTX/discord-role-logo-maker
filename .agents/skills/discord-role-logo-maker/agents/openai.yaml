@@ -1,0 +1,6 @@
+interface:
+  display_name: "Discord Role Logo Maker"
+  short_description: "Repo-specific patterns and workflows for discord-role-logo-maker"
+  default_prompt: "Use the discord-role-logo-maker repo skill to follow existing architecture, testing, and workflow conventions."
+policy:
+  allow_implicit_invocation: true
