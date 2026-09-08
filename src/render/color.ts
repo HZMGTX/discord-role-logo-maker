@@ -36,3 +36,18 @@ export function luminance(hex: string): number {
   };
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }
+
+export function darken(hex: string, amount: number): string {
+  return mix(hex, '#000000', amount);
+}
+
+export function lighten(hex: string, amount: number): string {
+  return mix(hex, '#ffffff', amount);
+}
+
+/** Euclidean distance in RGB space, for "closest palette color" lookups. */
+export function colorDistance(a: string, b: string): number {
+  const ca = hexToRgb(a);
+  const cb = hexToRgb(b);
+  return Math.hypot(ca.r - cb.r, ca.g - cb.g, ca.b - cb.b);
+}

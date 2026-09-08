@@ -1,10 +1,11 @@
 interface HeaderProps {
+  onAskAi: () => void;
   onRandomize: () => void;
   onReset: () => void;
   onShare: () => void;
 }
 
-export function Header({ onRandomize, onReset, onShare }: HeaderProps) {
+export function Header({ onAskAi, onRandomize, onReset, onShare }: HeaderProps) {
   return (
     <header className="header">
       <div className="header__brand">
@@ -32,6 +33,9 @@ export function Header({ onRandomize, onReset, onShare }: HeaderProps) {
         </button>
         <button type="button" className="btn" onClick={onRandomize}>
           <span aria-hidden="true">🎲</span> Randomize
+        </button>
+        <button type="button" className="btn btn--primary" onClick={onAskAi} data-testid="ask-ai">
+          <span aria-hidden="true">✨</span> Ask AI
         </button>
         <button type="button" className="btn" onClick={onShare}>
           Copy share link

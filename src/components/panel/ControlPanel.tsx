@@ -1,5 +1,7 @@
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
+import type { Idea } from '../../assistant/generate';
 import type { ExportSize, IconState, PreviewSettings } from '../../model/types';
+import { AssistantTab } from './AssistantTab';
 import { ContentTab } from './ContentTab';
 import { EffectsTab } from './EffectsTab';
 import { ExportTab } from './ExportTab';
@@ -8,6 +10,7 @@ import { ShapeTab } from './ShapeTab';
 import type { IconUpdater } from './types';
 
 const TABS = [
+  { id: 'ai', label: '✨ AI' },
   { id: 'shape', label: 'Shape' },
   { id: 'fill', label: 'Fill' },
   { id: 'content', label: 'Content' },
@@ -15,11 +18,16 @@ const TABS = [
   { id: 'export', label: 'Export' },
 ] as const;
 
-type TabId = (typeof TABS)[number]['id'];
+export type TabId = (typeof TABS)[number]['id'];
 
 interface ControlPanelProps {
+  tab: TabId;
+  onTabChange: (tab: TabId) => void;
   icon: IconState;
   updateIcon: IconUpdater;
+  assistantFocusToken: number;
+  onApplyIdea: (idea: Idea) => void;
+  onApplyIcon: (icon: IconState, roleName?: string) => void;
   preview: PreviewSettings;
   exportSize: ExportSize;
   onExportSizeChange: (size: ExportSize) => void;
@@ -28,15 +36,20 @@ interface ControlPanelProps {
 }
 
 export function ControlPanel({
+  tab,
+  onTabChange,
   icon,
   updateIcon,
+  assistantFocusToken,
+  onApplyIdea,
+  onApplyIcon,
   preview,
   exportSize,
   onExportSizeChange,
   onShare,
   notify,
 }: ControlPanelProps) {
-  const [tab, setTab] = useState<TabId>('shape');
+  const setTab = onTabChange;
   const buttons = useRef<Array<HTMLButtonElement | null>>([]);
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -77,6 +90,14 @@ export function ControlPanel({
         ))}
       </div>
       <div className="tabpanel" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
+        {tab === 'ai' && (
+          <AssistantTab
+            icon={icon}
+            focusToken={assistantFocusToken}
+            onApplyIdea={onApplyIdea}
+            onApplyIcon={onApplyIcon}
+          />
+        )}
         {tab === 'shape' && <ShapeTab icon={icon} updateIcon={updateIcon} />}
         {tab === 'fill' && <FillTab icon={icon} updateIcon={updateIcon} />}
         {tab === 'content' && <ContentTab icon={icon} updateIcon={updateIcon} notify={notify} />}

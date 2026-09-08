@@ -1,11 +1,12 @@
 # Role Icon Maker for Discord
 
-Design your own Discord **role icon** in the browser: pick a shape, colors, an emoji, text, a symbol or your own image, add a border, shadow or gloss, preview it exactly where Discord shows it, and download a PNG that is ready to upload.
+Design your own Discord **role icon** in the browser: pick a shape, colors, an emoji, text, a symbol or your own image, add a border, shadow or gloss, preview it exactly where Discord shows it, and download a PNG that is ready to upload. Not sure what to make? Describe the role to the built-in **AI assistant** and pick from the icons it designs.
 
 ![Role Icon Maker screenshot](docs/screenshot.png)
 
 ## Features
 
+- **AI assistant**: type something like "a gold crown for the server owner", "cute pink icon for the artists" or "neon hexagon for gamers" and get six complete designs, with an explanation of the choices. Then steer it with "make it darker", "add a border", "use a skull", "hexagon" or "make it red". It is a custom language-understanding engine that runs entirely in your browser: no external AI service, no API keys, no data leaves the page.
 - **Shapes**: circle, rounded square, square, squircle, hexagon, shield, diamond, star, heart, badge, or no background at all.
 - **Fills**: solid color, linear gradient with angle, radial gradient, plus Discord's default role color palette as one-click swatches.
 - **Content**: 280+ curated emoji (paste any other emoji), text or initials in nine fonts with outline and letter spacing, 18 built-in symbols, or an uploaded image (PNG, JPG, GIF, WebP, SVG) that stays in your browser.
@@ -55,6 +56,7 @@ The app is fully static; any static host works with the contents of `dist/`.
 
 ## How it works
 
+- The assistant (`src/assistant/`) is a rule-based engine: it tokenizes the description, pulls out colors (including "dark blue" or `#ff0000`), shapes, quoted text or initials, pasted emoji, style adjectives (cute, neon, minimal, professional, spooky…), and matches the rest against a lexicon of 40+ role themes (admin, moderator, gamer, artist, streamer…) plus a few hundred nouns that map to emoji. From those ingredients it composes several distinct icon states with a seeded random generator, so the same prompt always gives the same ideas and "More ideas" reseeds. Follow-up instructions are parsed the same way and applied as deltas to the current icon.
 - A single canvas renderer (`src/render/renderIcon.ts`) draws the icon at any pixel size from normalized coordinates, so the big preview, the tiny Discord mock previews, the preset thumbnails and the exported PNG are pixel-identical.
 - Emoji artwork comes from [Twemoji](https://github.com/jdecked/twemoji), loaded from jsDelivr and re-served as same-origin blobs so the canvas never gets tainted. If the CDN is unreachable the system emoji font is used and the export tab says so.
 - Fonts come from Google Fonts. Uploaded images are downscaled to at most 1024 px and kept as data URLs in `localStorage`.

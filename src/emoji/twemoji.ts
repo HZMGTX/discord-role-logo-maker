@@ -41,3 +41,8 @@ export function firstEmoji(input: string): string | null {
   }
   return null;
 }
+
+/** Every emoji grapheme in a string, in order. */
+export function allEmoji(input: string): string[] {
+  return graphemes(input).filter((g) => EMOJI_TEST.test(g));
+}

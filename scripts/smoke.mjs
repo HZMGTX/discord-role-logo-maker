@@ -135,8 +135,31 @@ try {
   await settle(page);
   const initial = await previewData(page);
   assert(initial.startsWith('data:image/png'), 'preview canvas exports a PNG data URL');
+  console.log('✓ page renders');
+
+  // 1b. The assistant turns a description into ideas, loads one, and applies tweaks.
+  await page.getByTestId('assistant-prompt').fill('gold crown for the server owner');
+  await page.getByTestId('assistant-generate').click();
+  await page.waitForSelector('[data-testid="idea-0"]');
+  const ideaCount = await page.locator('.idea').count();
+  assert(ideaCount >= 4, `assistant produced ideas (${ideaCount})`);
+  await settle(page);
+  const fromAssistant = await previewData(page);
+  assert(fromAssistant !== initial, 'the first idea is loaded into the preview');
+  assert((await page.getByLabel('Role name').inputValue()) === 'Admin', 'assistant sets the role name');
+  await page.getByTestId('idea-1').click();
+  await settle(page);
+  const secondIdea = await previewData(page);
+  assert(secondIdea !== fromAssistant, 'clicking another idea changes the preview');
   await page.screenshot({ path: path.join(OUT, 'screenshot.png'), fullPage: true });
-  console.log('✓ page renders; screenshot saved');
+  await page.getByTestId('assistant-tweak').fill('make it a hexagon');
+  await page.getByTestId('assistant-apply').click();
+  await settle(page);
+  const tweaked = await previewData(page);
+  assert(tweaked !== secondIdea, 'a tweak instruction changes the preview');
+  const shapeAfterTweak = await page.evaluate(() => JSON.parse(localStorage.getItem('role-icon-maker:v1')).icon.shape);
+  assert(shapeAfterTweak === 'hexagon', `tweak changed the shape to hexagon (${shapeAfterTweak})`);
+  console.log(`✓ assistant: ${ideaCount} ideas, load, tweak; screenshot saved`);
 
   // 2. A control change repaints the preview.
   await page.getByRole('tab', { name: 'Effects' }).click();
@@ -161,7 +184,7 @@ try {
   const file = await readFile(await download.path());
   assert(file.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), 'download is a PNG');
   assert(file.readUInt32BE(16) === 256 && file.readUInt32BE(20) === 256, 'download is 256×256');
-  assert(download.suggestedFilename() === 'role-icon-moderator-256.png', `filename ${download.suggestedFilename()}`);
+  assert(download.suggestedFilename() === 'role-icon-admin-256.png', `filename ${download.suggestedFilename()}`);
   assert(file.length <= 256 * 1024, 'download is under 256 KB');
   console.log(`✓ export: ${download.suggestedFilename()} (${file.length} bytes, estimate ${estimate})`);
 
