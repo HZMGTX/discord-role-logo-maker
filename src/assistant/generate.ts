@@ -42,6 +42,44 @@ export interface AssistantResult {
   understood: boolean;
 }
 
+const SMALL_TALK: ReadonlyArray<{ pattern: RegExp; reply: string }> = [
+  {
+    pattern: /^(hi|hello|hey|yo|sup|hiya|howdy|hola|good (morning|evening|afternoon))\b/i,
+    reply: "Hi! Tell me who the role is for and I'll design a few icons. For example: “gold crown for the server owner”, “cute pink icon for the artists” or “neon hexagon for gamers”.",
+  },
+  {
+    pattern: /\b(what can you do|what do you do|how does this work|how do i use|how to use|help me|can you help|what is this)\b/i,
+    reply: 'Describe the role (who it is for, a color, a mood, a shape or an emoji) and I will design six icons you can load and tweak. After loading one, tell me things like “darker”, “add a border”, “use a skull” or “make it a hexagon”. Every click on Generate gives a fresh batch.',
+  },
+  {
+    pattern: /\b(thanks|thank you|thx|ty|cheers)\b/i,
+    reply: "You're welcome! Download it from the Export tab when you're happy, or keep tweaking.",
+  },
+  {
+    pattern: /^(ok|okay|cool|nice|great|good|lol|k|yes|no|hmm)\W*$/i,
+    reply: 'Tell me who the role is for whenever you are ready, or pick one of the examples above.',
+  },
+];
+
+const GREETING_WORDS = new Set(['hi', 'hello', 'hey', 'wave', 'thanks', 'ok']);
+
+/** A conversational reply for greetings and questions that describe no icon at all. */
+export function smallTalk(prompt: string, parsed: ParsedPrompt): string | null {
+  const describesIcon =
+    parsed.themes.length > 0 ||
+    parsed.emojiWords.some((w) => !GREETING_WORDS.has(w.word)) ||
+    parsed.colors.length > 0 ||
+    parsed.contentColor !== null ||
+    parsed.shape !== null ||
+    parsed.text !== null ||
+    parsed.emoji !== null ||
+    parsed.styles.length > 0;
+  if (describesIcon) return null;
+  const trimmed = prompt.trim();
+  for (const { pattern, reply } of SMALL_TALK) if (pattern.test(trimmed)) return reply;
+  return null;
+}
+
 export const EXAMPLE_PROMPTS: readonly string[] = [
   'Gold crown for the server owner',
   'Cute pink icon for the artists',
@@ -288,7 +326,27 @@ function fillLabel(fill: FillType): string {
   return fill === 'solid' ? 'solid' : fill === 'radial' ? 'radial' : 'gradient';
 }
 
-function describe(parsed: ParsedPrompt, ingredients: Ingredients, count: number, roleName: string | null): string {
+function shuffle<T>(items: readonly T[], rng: () => number): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const a = out[i];
+    const b = out[j];
+    if (a !== undefined && b !== undefined) {
+      out[i] = b;
+      out[j] = a;
+    }
+  }
+  return out;
+}
+
+function describe(
+  parsed: ParsedPrompt,
+  ingredients: Ingredients,
+  count: number,
+  roleName: string | null,
+  round: number,
+): string {
   const parts: string[] = [];
   const { theme, styles, generic } = ingredients;
   if (parsed.emoji) parts.push(`I used your ${parsed.emoji} as the icon.`);
@@ -306,11 +364,12 @@ function describe(parsed: ParsedPrompt, ingredients: Ingredients, count: number,
   if (parsed.shape) parts.push(`Shape: ${SHAPE_LABELS[parsed.shape].toLowerCase()}.`);
 
   const recognised = parts.length > 0;
+  const more = round > 0 ? ' more' : '';
   const intro = generic && !recognised
-    ? "I couldn't tell what the role is about, so here are a few all-rounders."
+    ? `I couldn't tell what the role is about, so here are a few${more} all-rounders.`
     : roleName
-      ? `Here are ${count} ideas for ${roleName}.`
-      : `Here are ${count} ideas.`;
+      ? `Here are ${count}${more} ideas for ${roleName}.`
+      : `Here are ${count}${more} ideas.`;
   const outro = generic && !recognised
     ? 'Try naming the role (admin, artist, gamer…), a color, a mood, or paste an emoji.'
     : 'Click one to load it, then tweak anything.';
@@ -320,9 +379,23 @@ function describe(parsed: ParsedPrompt, ingredients: Ingredients, count: number,
 /** Turns a description into several complete icon designs. Same prompt and seed give the same ideas. */
 export function generateIdeas(prompt: string, seed = 0, count = 6): AssistantResult {
   const parsed = parsePrompt(prompt);
+  const chat = smallTalk(prompt, parsed);
+  if (chat) return { reply: chat, ideas: [], parsed, understood: false };
   const ingredients = buildIngredients(parsed);
-  const { contents, palettes, shapes, fills } = ingredients;
   const base = hashString(prompt.trim().toLowerCase());
+  let { contents, palettes, shapes, fills } = ingredients;
+  if (seed > 0) {
+    // Later rounds reshuffle everything and widen the pools, so "More ideas" really are more.
+    const mix = mulberry32((base ^ Math.imul(seed, 0x27d4eb2f)) >>> 0);
+    contents = shuffle(contents, mix);
+    if (!parsed.shape) shapes = shuffle(dedupe([...shapes, ...GENERIC_SHAPES]), mix);
+    if (parsed.colors.length === 0 && !parsed.contentColor) {
+      palettes = shuffle(dedupe([...palettes, ...GENERIC_PALETTES]), mix);
+    } else {
+      palettes = shuffle(palettes, mix);
+    }
+    if (!parsed.flags.fill) fills = shuffle(['linear', 'radial', 'solid', 'linear'], mix);
+  }
   const firstWord = parsed.emojiWords[0];
   const themeScore = parsed.themes[0]?.score ?? 0;
   const shortPrompt =
@@ -376,5 +449,5 @@ export function generateIdeas(prompt: string, seed = 0, count = 6): AssistantRes
     parsed.shape !== null ||
     parsed.text !== null ||
     parsed.emoji !== null;
-  return { reply: describe(parsed, ingredients, ideas.length, roleName), ideas, parsed, understood: recognised };
+  return { reply: describe(parsed, ingredients, ideas.length, roleName, seed), ideas, parsed, understood: recognised };
 }

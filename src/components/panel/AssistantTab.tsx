@@ -82,7 +82,7 @@ export function AssistantTab({ icon, focusToken, onApplyIdea, onApplyIcon }: Ass
   };
 
   const showIdeas = (next: IdeaSet, userText: string) => {
-    setResult(next);
+    setResult(next.ideas.length > 0 ? next : result);
     const first = next.ideas[0];
     if (first) {
       onApplyIdea(first);
@@ -91,12 +91,14 @@ export function AssistantTab({ icon, focusToken, onApplyIdea, onApplyIcon }: Ass
     say(userText, next.reply);
   };
 
-  const generate = async (text: string, nextSeed: number) => {
+  const generate = async (text: string, requestedSeed: number) => {
     const trimmed = text.trim();
     if (!trimmed || busy) {
       if (!trimmed) promptRef.current?.focus();
       return;
     }
+    // Asking again for the same prompt should never hand back the same batch.
+    const nextSeed = requestedSeed === 0 && trimmed === lastPrompt && result ? seed + 1 : requestedSeed;
     setLastPrompt(trimmed);
     setSeed(nextSeed);
     const userText = nextSeed === 0 ? trimmed : `${trimmed} (more ideas)`;
@@ -253,7 +255,7 @@ export function AssistantTab({ icon, focusToken, onApplyIdea, onApplyIcon }: Ass
         </div>
       )}
 
-      {result && (
+      {result && result.ideas.length > 0 && (
         <div className="section">
           <h2 className="section__title">
             Ideas

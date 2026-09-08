@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_ICON } from '../model/defaults';
 import { sanitizeIcon } from '../model/serialize';
 import { luminance } from '../render/color';
-import { generateIdeas } from './generate';
+import { generateIdeas, smallTalk } from './generate';
 import { extractRoleName, parsePrompt } from './parse';
 import { refineIcon } from './refine';
 import { sameWord, stripPlural, tokenize, wordForms } from './tokenize';
@@ -203,6 +203,30 @@ describe('generateIdeas', () => {
     expect(symbols.length).toBeGreaterThan(0);
     for (const idea of symbols) expect(idea.icon.content).toMatchObject({ color: '#f1c40f' });
     for (const idea of crown.ideas) expect(idea.icon.fill.color1).toBe('#3498db');
+  });
+
+  it('gives a different batch on later rounds while staying deterministic per round', () => {
+    const first = generateIdeas('gold crown for the server owner', 0);
+    const second = generateIdeas('gold crown for the server owner', 1);
+    const third = generateIdeas('gold crown for the server owner', 2);
+    const captions = (r: ReturnType<typeof generateIdeas>) => r.ideas.map((i) => i.caption).join('|');
+    expect(captions(first)).not.toBe(captions(second));
+    expect(captions(second)).not.toBe(captions(third));
+    expect(captions(generateIdeas('gold crown for the server owner', 1))).toBe(captions(second));
+    expect(second.reply).toMatch(/^Here are 6 more ideas/);
+    for (const idea of [...second.ideas, ...third.ideas]) {
+      expect(idea.icon.content.kind === 'symbol' ? idea.icon.content.symbol : idea.icon.content.kind === 'emoji' ? idea.icon.content.emoji : '').toMatch(/crown|👑|🫅|🏰/);
+    }
+  });
+
+  it('answers greetings and questions instead of designing', () => {
+    const hi = generateIdeas('hi', 0);
+    expect(hi.ideas).toEqual([]);
+    expect(hi.reply).toMatch(/Tell me who the role is for/);
+    expect(generateIdeas('what can you do?', 0).reply).toMatch(/Describe the role/);
+    expect(generateIdeas('thanks!', 0).reply).toMatch(/welcome/);
+    expect(smallTalk('help me make a hero icon', parsePrompt('help me make a hero icon'))).toBeNull();
+    expect(generateIdeas('help me make a hero icon', 0).ideas).toHaveLength(6);
   });
 
   it('handles an empty prompt', () => {
