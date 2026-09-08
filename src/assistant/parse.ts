@@ -20,6 +20,8 @@ export interface ThemeMatch {
   theme: Theme;
   score: number;
   position: number;
+  /** Token indices the theme's keywords matched. */
+  positions: number[];
 }
 
 export interface EmojiWordMatch {
@@ -49,6 +51,8 @@ export interface ParsedPrompt {
   raw: string;
   tokens: string[];
   boundaries: ReadonlySet<number>;
+  /** A role name taken from the prompt itself ("for the staff manager role" -> "Staff Manager"). */
+  roleName: string | null;
   /** Background colors, in the order they were mentioned. */
   colors: ColorMatch[];
   /** A color the user tied to the icon itself ("white text", "gold crown on blue"). */
@@ -74,6 +78,38 @@ const TEXT_MARKERS = new Set([
   'abbr', 'acronym', 'saying', 'says', 'reads', 'labeled', 'labelled', 'written', 'writing',
 ]);
 const NOT_TEXT = new Set(['color', 'colour', 'colors', 'colours', 'colored', 'coloured', 'size', 'style', 'font']);
+const ROLE_FILLERS = new Set([
+  'a', 'an', 'the', 'my', 'our', 'this', 'that', 'new', 'icon', 'icons', 'logo', 'logos', 'role', 'roles',
+  'server', 'discord', 'some', 'something', 'please', 'pls', 'nice', 'good', 'great', 'awesome', 'simple',
+  'custom', 'own', 'people', 'members', 'users', 'folks', 'everyone', 'those', 'anyone', 'someone', 'all',
+  'me', 'us', 'them', 'it', 'one', 'ones', 'guys',
+]);
+const ROLE_PATTERNS: readonly RegExp[] = [
+  /\broles?\s+(?:called|named)\s+(.+?)(?=[,.;!?]|$)/i,
+  /\b(?:for|as)\s+(?:the\s+|a\s+|an\s+|my\s+|our\s+)?(.+?)\s+roles?\b/i,
+  /\b(?:for|as)\s+(?:the\s+|a\s+|an\s+|my\s+|our\s+)?(.+?)(?=[,.;!?]|\s+(?:that|which|who|with|in|on|and|but|so)\b|$)/i,
+];
+
+function titleCase(words: readonly string[]): string {
+  return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+/** Pulls the role's name out of phrases like "for the staff manager role" or "icon for the artists". */
+export function extractRoleName(raw: string): string | null {
+  const text = raw.replace(/["“”]/g, ' ').trim();
+  for (const pattern of ROLE_PATTERNS) {
+    const match = pattern.exec(text);
+    const phrase = match?.[1];
+    if (!phrase) continue;
+    const words = phrase
+      .toLowerCase()
+      .split(/[^a-z0-9'-]+/)
+      .filter((w) => w && !ROLE_FILLERS.has(w) && !COLOR_WORDS[w] && !COLOR_MODIFIERS[w]);
+    if (words.length === 0 || words.length > 3) continue;
+    return titleCase(words);
+  }
+  return null;
+}
 const CONTENT_WORDS = new Set([
   'text', 'letters', 'letter', 'initials', 'initial', 'symbol', 'emoji', 'glyph', 'foreground',
   'font', 'number', 'word', 'crown', 'star', 'heart', 'skull', 'gem',
@@ -234,12 +270,14 @@ function matchThemes(
       if (STOP_WORDS.has(keyword)) continue;
       const index = findKeyword(tokens, keyword, consumed);
       if (index < 0 || isNegated(tokens, index, boundaries) || hits.has(index)) continue;
-      hits.add(index);
-      score += keyword.includes(' ') ? 2 : 1;
+      const span = keyword.split(' ').length;
+      for (let j = 0; j < span; j++) hits.add(index + j);
+      score += span > 1 ? 2 : 1;
     }
-    if (score > 0) matches.push({ theme, score, position: Math.min(...hits) });
+    if (score > 0) matches.push({ theme, score, position: Math.min(...hits), positions: [...hits] });
   }
-  return matches.sort((a, b) => b.score - a.score || a.position - b.position);
+  // Ties go to the later mention: in "staff manager" the head noun comes last.
+  return matches.sort((a, b) => b.score - a.score || b.position - a.position);
 }
 
 /** Words from the Unicode annotations that are too vague to pick an icon from. */
@@ -275,6 +313,7 @@ function matchEmojiWords(
   tokens: readonly string[],
   consumed: ReadonlySet<number>,
   boundaries: ReadonlySet<number>,
+  themed: ReadonlySet<number>,
 ): EmojiWordMatch[] {
   const matches: EmojiWordMatch[] = [];
   tokens.forEach((token, i) => {
@@ -287,6 +326,7 @@ function matchEmojiWords(
       }
       return;
     }
+    if (themed.has(i)) return;
     const unicode = lookupUnicode(tokens, i);
     if (unicode && !matches.some((m) => m.word === unicode.key)) {
       matches.push({ word: unicode.key, emoji: unicode.emoji.slice(0, 3), position: i, source: 'unicode' });
@@ -362,14 +402,17 @@ export function parsePrompt(input: string): ParsedPrompt {
   const text = parseText(tokens, quoted, consumed);
   const flags = parseFlags(tokens, text, boundaries);
   if (flags.transparent) shape = 'none';
+  const themes = matchThemes(tokens, consumed, boundaries);
+  const themed = new Set(themes.flatMap((t) => t.positions));
   return {
     raw,
     tokens,
     boundaries,
+    roleName: extractRoleName(raw),
     colors,
     contentColor,
-    themes: matchThemes(tokens, consumed, boundaries),
-    emojiWords: matchEmojiWords(tokens, consumed, boundaries),
+    themes,
+    emojiWords: matchEmojiWords(tokens, consumed, boundaries, themed),
     styles: matchStyles(tokens, consumed, boundaries),
     shape,
     text,

@@ -3,7 +3,7 @@ import { DEFAULT_ICON } from '../model/defaults';
 import { sanitizeIcon } from '../model/serialize';
 import { luminance } from '../render/color';
 import { generateIdeas } from './generate';
-import { parsePrompt } from './parse';
+import { extractRoleName, parsePrompt } from './parse';
 import { refineIcon } from './refine';
 import { sameWord, stripPlural, tokenize, wordForms } from './tokenize';
 
@@ -109,6 +109,21 @@ describe('parsePrompt', () => {
     expect(parsePrompt('magnifying glass for the detectives').emojiWords[0]?.emoji[0]).toMatch(/🔍|🔎/);
   });
 
+  it('names the role after the prompt and lets the head noun win ties', () => {
+    expect(extractRoleName('Make me a icon for staff manager role')).toBe('Staff Manager');
+    expect(extractRoleName('gold crown for the server owner')).toBe('Owner');
+    expect(extractRoleName('cute pink icon for the artists')).toBe('Artists');
+    expect(extractRoleName('blue shield shape for moderators, professional')).toBe('Moderators');
+    expect(extractRoleName('something for the minecraft builders')).toBe('Minecraft Builders');
+    expect(extractRoleName('a role for people who stream on twitch at night')).toBeNull();
+    expect(extractRoleName('🐸 on a green badge')).toBeNull();
+    expect(extractRoleName('role called "Night Watch"')).toBe('Night Watch');
+    const p = parsePrompt('Make me a icon for staff manager role');
+    expect(p.themes[0]?.theme.id).toBe('admin');
+    expect(p.themes[1]?.theme.id).toBe('moderator');
+    expect(p.emojiWords).toEqual([]);
+  });
+
   it('reads transparent backgrounds and fill words', () => {
     const p = parsePrompt('a solid red star with no background');
     expect(p.flags.transparent).toBe(true);
@@ -126,7 +141,7 @@ describe('generateIdeas', () => {
     expect(reply).toContain('crown');
     for (const idea of ideas) {
       expect(sanitizeIcon(JSON.parse(JSON.stringify(idea.icon)))).toEqual(idea.icon);
-      expect(idea.roleName).toBe('Admin');
+      expect(idea.roleName).toBe('Owner');
       const c = idea.icon.content;
       expect(c.kind === 'emoji' || c.kind === 'symbol').toBe(true);
       expect(c.kind === 'symbol' ? c.symbol : c.kind === 'emoji' ? c.emoji : '').toMatch(/crown|👑|🫅|🏰/);
@@ -178,7 +193,11 @@ describe('generateIdeas', () => {
       expect(idea.icon.content).not.toMatchObject({ kind: 'emoji', emoji: '🛡️' });
       expect(idea.icon.content).not.toMatchObject({ kind: 'symbol', symbol: 'shield' });
     }
-    expect(generateIdeas('dog lovers', 0, 2).ideas[0]?.roleName).toBe('Dog');
+    expect(generateIdeas('dog lovers', 0, 2).ideas[0]?.roleName).toBe('Dog Lovers');
+    const staff = generateIdeas('Make me a icon for staff manager role', 0, 6);
+    expect(staff.ideas[0]?.roleName).toBe('Staff Manager');
+    expect(staff.reply).toMatch(/^Here are 6 ideas for Staff Manager\./);
+    expect(staff.ideas.some((i) => i.icon.content.kind === 'symbol' && i.icon.content.symbol === 'crown')).toBe(true);
     const crown = generateIdeas('gold crown on blue', 0, 6);
     const symbols = crown.ideas.filter((i) => i.icon.content.kind === 'symbol');
     expect(symbols.length).toBeGreaterThan(0);

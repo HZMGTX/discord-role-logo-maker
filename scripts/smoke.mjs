@@ -146,7 +146,7 @@ try {
   await settle(page);
   const fromAssistant = await previewData(page);
   assert(fromAssistant !== initial, 'the first idea is loaded into the preview');
-  assert((await page.getByLabel('Role name').inputValue()) === 'Admin', 'assistant sets the role name');
+  assert((await page.getByLabel('Role name').inputValue()) === 'Owner', 'assistant sets the role name from the prompt');
   await page.getByTestId('idea-1').click();
   await settle(page);
   const secondIdea = await previewData(page);
@@ -184,7 +184,7 @@ try {
   const file = await readFile(await download.path());
   assert(file.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), 'download is a PNG');
   assert(file.readUInt32BE(16) === 256 && file.readUInt32BE(20) === 256, 'download is 256×256');
-  assert(download.suggestedFilename() === 'role-icon-admin-256.png', `filename ${download.suggestedFilename()}`);
+  assert(download.suggestedFilename() === 'role-icon-owner-256.png', `filename ${download.suggestedFilename()}`);
   assert(file.length <= 256 * 1024, 'download is under 256 KB');
   console.log(`✓ export: ${download.suggestedFilename()} (${file.length} bytes, estimate ${estimate})`);
 

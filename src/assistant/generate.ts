@@ -13,10 +13,12 @@ import {
 import { colorDistance, darken, luminance } from '../render/color';
 import { SYMBOLS } from '../render/symbols';
 import {
+  COLOR_WORDS,
   GENERIC_EMOJI,
   GENERIC_PALETTES,
   GENERIC_SHAPES,
   GENERIC_SYMBOLS,
+  STOP_WORDS,
   type Palette,
   type Style,
   type Theme,
@@ -150,7 +152,7 @@ function buildIngredients(parsed: ParsedPrompt): Ingredients {
       symbolList.push(...theme.symbols);
     }
     for (const word of parsed.emojiWords) if (word.source === 'unicode') emojiList.push(...word.emoji);
-    if (secondary && parsed.emojiWords.length === 0) {
+    if (secondary && !parsed.emojiWords.some((w) => w.source === 'curated')) {
       emojiList.push(...secondary.emoji.slice(0, 1));
       symbolList.push(...secondary.symbols.slice(0, 1));
     }
@@ -286,13 +288,13 @@ function fillLabel(fill: FillType): string {
   return fill === 'solid' ? 'solid' : fill === 'radial' ? 'radial' : 'gradient';
 }
 
-function describe(parsed: ParsedPrompt, ingredients: Ingredients, count: number): string {
+function describe(parsed: ParsedPrompt, ingredients: Ingredients, count: number, roleName: string | null): string {
   const parts: string[] = [];
   const { theme, styles, generic } = ingredients;
   if (parsed.emoji) parts.push(`I used your ${parsed.emoji} as the icon.`);
   else if (parsed.text) parts.push(`I put “${parsed.text}” on it in a few fonts.`);
   if (theme) {
-    parts.push(`For ${theme.label.toLowerCase()} I picked ${theme.reason}.`);
+    parts.push(`I picked ${theme.reason}.`);
   } else if (parsed.emojiWords.length > 0 && !parsed.emoji && !parsed.text) {
     const words = parsed.emojiWords.map((w) => w.word).join(', ');
     const emoji = parsed.emojiWords.map((w) => w.emoji[0] ?? '').join(' ');
@@ -306,7 +308,9 @@ function describe(parsed: ParsedPrompt, ingredients: Ingredients, count: number)
   const recognised = parts.length > 0;
   const intro = generic && !recognised
     ? "I couldn't tell what the role is about, so here are a few all-rounders."
-    : `Here are ${count} ideas.`;
+    : roleName
+      ? `Here are ${count} ideas for ${roleName}.`
+      : `Here are ${count} ideas.`;
   const outro = generic && !recognised
     ? 'Try naming the role (admin, artist, gamer…), a color, a mood, or paste an emoji.'
     : 'Click one to load it, then tweak anything.';
@@ -321,10 +325,21 @@ export function generateIdeas(prompt: string, seed = 0, count = 6): AssistantRes
   const base = hashString(prompt.trim().toLowerCase());
   const firstWord = parsed.emojiWords[0];
   const themeScore = parsed.themes[0]?.score ?? 0;
+  const shortPrompt =
+    parsed.tokens.length <= 3 &&
+    parsed.boundaries.size === 0 &&
+    (ingredients.theme !== null || firstWord?.source === 'curated') &&
+    !parsed.text &&
+    !parsed.emoji
+      ? parsed.tokens.filter((t) => !COLOR_WORDS[t] && !STOP_WORDS.has(t))
+      : [];
   const roleName =
-    firstWord && (firstWord.source === 'curated' || !ingredients.theme) && themeScore <= 1 && !parsed.text
-      ? capitalize(firstWord.word)
-      : (ingredients.theme?.label ?? parsed.text ?? null);
+    parsed.roleName ??
+    (shortPrompt.length > 0
+      ? shortPrompt.map(capitalize).join(' ')
+      : firstWord && (firstWord.source === 'curated' || !ingredients.theme) && themeScore <= 1 && !parsed.text
+        ? capitalize(firstWord.word)
+        : (ingredients.theme?.label ?? parsed.text ?? null));
   const ideas: Idea[] = [];
   const seen = new Set<string>();
 
@@ -361,5 +376,5 @@ export function generateIdeas(prompt: string, seed = 0, count = 6): AssistantRes
     parsed.shape !== null ||
     parsed.text !== null ||
     parsed.emoji !== null;
-  return { reply: describe(parsed, ingredients, ideas.length), ideas, parsed, understood: recognised };
+  return { reply: describe(parsed, ingredients, ideas.length, roleName), ideas, parsed, understood: recognised };
 }
