@@ -34,7 +34,9 @@ const FONT_IDS = FONTS.map((f) => f.id) as [FontId, ...FontId[]];
 
 /** A flat layer description: easier for the model than the app's nested union. */
 const ModelLayerSchema = z.object({
-  kind: z.enum(['emoji', 'text', 'symbol', 'shape', 'none']),
+  kind: z
+    .enum(['emoji', 'text', 'symbol', 'shape', 'image', 'none'])
+    .describe('use image only to keep a picture the user already uploaded, never to add one'),
   emoji: z.string().describe('exactly one Unicode emoji when kind is emoji, else empty'),
   text: z.string().describe('1-4 characters when kind is text, else empty'),
   font: z.enum(FONT_IDS),
@@ -103,7 +105,7 @@ const RequestSchema = z.object({
   icon: z.unknown().optional(),
 });
 
-export const SYSTEM_PROMPT = `You design Discord role icons inside the "Role Icon Maker" web app. A role icon is a tiny square image shown next to a member's name at about 20 px, so designs must be bold and simple: one background shape, one piece of content, strong contrast. You reply only with the structured data the app expects.
+export const SYSTEM_PROMPT = `You design Discord role icons inside the "Role Icon Maker" web app. A role icon is a tiny square image shown next to a member's name at about 20 px, so designs must be bold and simple: a background plate, one or two marks stacked on it, strong contrast. You reply only with the structured data the app expects.
 
 Design space:
 - shape: circle, roundedSquare (cornerRadius 0.15-0.35), square, squircle, hexagon, shield, diamond, star, heart, badge (scalloped seal), none (transparent background, content only).
@@ -162,6 +164,9 @@ function toContent(model: ModelLayer): Content {
       };
     case 'symbol':
       return { kind: 'symbol', symbol: model.symbol, color, shadow };
+    case 'image':
+      // The model cannot invent image bytes; the caller restores them.
+      return { kind: 'none' };
     case 'shape':
       return {
         kind: 'shape',
@@ -184,8 +189,17 @@ function toContent(model: ModelLayer): Content {
   }
 }
 
-/** Converts the model's flat icon into a validated IconState. */
-export function toIconState(model: ModelIcon): IconState {
+/**
+ * Converts the model's flat icon into a validated IconState. `previous` is the
+ * icon the user is editing: an uploaded image cannot survive a round trip
+ * through the model, so a layer the model returns as an image is refilled from
+ * the matching layer of `previous` rather than being dropped.
+ */
+export function toIconState(model: ModelIcon, previous?: IconState): IconState {
+  const spareImages = (previous?.layers ?? [])
+    .map((l) => l.content)
+    .filter((c): c is Extract<Content, { kind: 'image' }> => c.kind === 'image' && c.src !== null);
+  let nextImage = 0;
   const layers = (model.layers ?? [])
     .slice(0, MAX_LAYERS)
     .map((layer, index) => ({
@@ -193,7 +207,10 @@ export function toIconState(model: ModelIcon): IconState {
       name: '',
       hidden: false,
       locked: false,
-      content: toContent(layer),
+      content:
+        layer.kind === 'image'
+          ? (spareImages[nextImage++] ?? { kind: 'none' as const })
+          : toContent(layer),
       transform: {
         scale: layer.scale,
         x: layer.x,
@@ -233,7 +250,7 @@ export function toIconState(model: ModelIcon): IconState {
 function toModelLayer(layer: IconState['layers'][number]): ModelLayer {
   const c = layer.content;
   return {
-    kind: c.kind === 'image' ? 'none' : c.kind,
+    kind: c.kind,
     emoji: c.kind === 'emoji' ? c.emoji : '',
     text: c.kind === 'text' ? c.text : '',
     font: c.kind === 'text' ? c.font : 'inter',
@@ -375,7 +392,7 @@ export async function handleAssistantRequest(
         model,
         reply: parsed.reply.trim(),
         roleName: parsed.roleName?.trim().slice(0, 40) || null,
-        icon: toIconState(parsed.icon),
+        icon: toIconState(parsed.icon, current),
       },
     };
   } catch (error) {

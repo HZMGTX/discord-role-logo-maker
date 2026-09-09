@@ -9,6 +9,7 @@ import { PreviewSettingsBar } from './components/preview/PreviewSettingsBar';
 import { PreviewStage } from './components/preview/PreviewStage';
 import { downloadBlob, formatBytes, renderToBlob } from './export/exportPng';
 import { loadInitialState } from './hooks/initialState';
+import { useIconHistory } from './hooks/useIconHistory';
 import { useIconDataUrl } from './hooks/useIconDataUrl';
 import { usePersistedState } from './hooks/usePersistedState';
 import { DEFAULT_ICON, DEFAULT_PREVIEW, cloneIcon } from './model/defaults';
@@ -28,7 +29,8 @@ function clearHash() {
 
 export function App() {
   const [initial] = useState(loadInitialState);
-  const [icon, setIcon] = useState<IconState>(initial.icon);
+  const history = useIconHistory(initial.icon);
+  const icon = history.icon;
   const [preview, setPreview] = useState<PreviewSettings>(initial.preview);
   const [exportSize, setExportSize] = useState<ExportSize>(256);
   const [busy, setBusy] = useState(false);
@@ -44,19 +46,23 @@ export function App() {
     if (initial.source === 'share') notify('Loaded the design from your share link');
   }, [initial.source, notify]);
 
-  const replaceIcon = useCallback((next: IconState) => {
-    clearHash();
-    setIcon(next);
-  }, []);
+  const replaceIcon = useCallback(
+    (next: IconState) => {
+      clearHash();
+      history.commit(next);
+    },
+    [history],
+  );
 
-  const updateIcon = useCallback((mutate: (draft: IconState) => void) => {
-    clearHash();
-    setIcon((current) => {
-      const next = structuredClone(current);
+  const updateIcon = useCallback(
+    (mutate: (draft: IconState) => void) => {
+      clearHash();
+      const next = structuredClone(history.icon);
       mutate(next);
-      return next;
-    });
-  }, []);
+      history.commit(next, true);
+    },
+    [history],
+  );
 
   const updatePreview = useCallback((patch: Partial<PreviewSettings>) => {
     clearHash();
@@ -65,14 +71,14 @@ export function App() {
 
   const applyPreset = (preset: Preset) => {
     clearHash();
-    setIcon(cloneIcon(preset.icon));
+    history.commit(cloneIcon(preset.icon));
     setPreview((current) => ({ ...current, roleName: preset.name, roleColor: preset.roleColor }));
     notify(`Loaded the ${preset.name} preset`);
   };
 
   const randomize = () => {
     clearHash();
-    setIcon(randomizeIcon());
+    history.commit(randomizeIcon());
   };
 
   const askAi = () => {
@@ -82,7 +88,7 @@ export function App() {
 
   const applyIdea = useCallback((idea: Idea) => {
     clearHash();
-    setIcon(cloneIcon(idea.icon));
+    history.commit(cloneIcon(idea.icon));
     setPreview((current) => ({
       ...current,
       roleName: idea.roleName ?? current.roleName,
@@ -92,13 +98,13 @@ export function App() {
 
   const applyIcon = useCallback((next: IconState, roleName?: string) => {
     clearHash();
-    setIcon(next);
+    history.commit(next);
     if (roleName) setPreview((current) => ({ ...current, roleName }));
   }, []);
 
   const reset = () => {
     clearHash();
-    setIcon(cloneIcon(DEFAULT_ICON));
+    history.commit(cloneIcon(DEFAULT_ICON));
     setPreview({ ...DEFAULT_PREVIEW });
     notify('Back to the default design');
   };
@@ -133,7 +139,16 @@ export function App() {
 
   return (
     <div className="app">
-      <Header onAskAi={askAi} onRandomize={randomize} onReset={reset} onShare={() => void share()} />
+      <Header
+        onAskAi={askAi}
+        onRandomize={randomize}
+        onReset={reset}
+        onShare={() => void share()}
+        onUndo={history.undo}
+        onRedo={history.redo}
+        canUndo={history.canUndo}
+        canRedo={history.canRedo}
+      />
       <main className="main">
         <ControlPanel
           tab={tab}

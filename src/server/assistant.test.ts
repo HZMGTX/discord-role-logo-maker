@@ -132,8 +132,31 @@ describe('model icon conversion', () => {
     expect(icon.background.fill.angle).toBe(360);
     expect(icon.background.border).toEqual({ width: 0.12, color: '#ffffff' });
     expect(icon.layers[0]?.content).toEqual({ kind: 'emoji', emoji: '🐸', shadow: false });
-    expect(icon.layers[0]?.transform.scale).toBe(1.5);
+    expect(icon.layers[0]?.transform.scale).toBe(3);
     expect(sanitizeIcon(JSON.parse(JSON.stringify(icon)))).toEqual(icon);
+  });
+
+  it('keeps an uploaded image through a tweak the model cannot carry', () => {
+    const withImage = sanitizeIcon({
+      v: 2,
+      background: {},
+      layers: [
+        { id: 'pic', content: { kind: 'image', src: 'data:image/png;base64,AAAA', fit: 'cover' } },
+        { id: 'mark', content: { kind: 'symbol', symbol: 'crown', color: '#ffffff' } },
+      ],
+    });
+    // The model sees the picture as an image layer and hands it straight back.
+    const asModel = toModelIcon(withImage);
+    expect(asModel.layers[0]?.kind).toBe('image');
+    const back = toIconState(asModel, withImage);
+    expect(back.layers[0]?.content).toEqual({
+      kind: 'image',
+      src: 'data:image/png;base64,AAAA',
+      fit: 'cover',
+    });
+    expect(back.layers[1]?.content).toMatchObject({ kind: 'symbol', symbol: 'crown' });
+    // Without the previous icon there are no bytes to restore, so it drops out.
+    expect(toIconState(asModel).layers).toHaveLength(1);
   });
 
   it('drops empty layers and keeps the plate', () => {

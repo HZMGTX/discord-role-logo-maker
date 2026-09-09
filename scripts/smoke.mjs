@@ -184,7 +184,13 @@ try {
   await page.getByTestId('delete-layer').click();
   await settle(page);
   assert((await layerCount()) === before, 'deleting a layer restored the stack');
-  console.log(`✓ layers: add, hide, delete (${before} -> ${after} -> ${before})`);
+  await page.getByTestId('undo').click();
+  await settle(page);
+  assert((await layerCount()) === after, 'undo brought the deleted layer back');
+  await page.getByTestId('redo').click();
+  await settle(page);
+  assert((await layerCount()) === before, 'redo removed it again');
+  console.log(`✓ layers: add, hide, delete, undo, redo (${before} -> ${after} -> ${before})`);
 
   // 2. A control change repaints the preview.
   await page.getByRole('tab', { name: 'Effects' }).click();

@@ -1,11 +1,24 @@
 interface HeaderProps {
   onAskAi: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
   onRandomize: () => void;
   onReset: () => void;
   onShare: () => void;
 }
 
-export function Header({ onAskAi, onRandomize, onReset, onShare }: HeaderProps) {
+export function Header({
+  onAskAi,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
+  onRandomize,
+  onReset,
+  onShare,
+}: HeaderProps) {
   return (
     <header className="header">
       <div className="header__brand">
@@ -28,6 +41,28 @@ export function Header({ onAskAi, onRandomize, onReset, onShare }: HeaderProps) 
         </div>
       </div>
       <div className="header__actions">
+        <button
+          type="button"
+          className="btn btn--ghost"
+          onClick={onUndo}
+          disabled={!canUndo}
+          aria-label="Undo"
+          title="Undo (Ctrl+Z)"
+          data-testid="undo"
+        >
+          ↶
+        </button>
+        <button
+          type="button"
+          className="btn btn--ghost"
+          onClick={onRedo}
+          disabled={!canRedo}
+          aria-label="Redo"
+          title="Redo (Ctrl+Shift+Z)"
+          data-testid="redo"
+        >
+          ↷
+        </button>
         <button type="button" className="btn btn--ghost" onClick={onReset}>
           Reset
         </button>

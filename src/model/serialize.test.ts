@@ -152,7 +152,7 @@ describe('sanitizeIcon', () => {
     expect(icon.background.cornerRadius).toBe(0.5);
     expect(icon.background.fill.color1).toBe(DEFAULT_ICON.background.fill.color1);
     expect(icon.background.fill.angle).toBe(0);
-    expect(icon.layers[0]?.transform.scale).toBe(1.5);
+    expect(icon.layers[0]?.transform.scale).toBe(3);
     expect(icon.layers[0]?.transform.rotation).toBe(0);
     expect(icon.layers[0]?.blend).toBe('normal');
     expect(icon.layers[0]?.content).toEqual({
