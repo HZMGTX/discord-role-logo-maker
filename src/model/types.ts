@@ -9,6 +9,8 @@ export const SHAPES = [
   'star',
   'heart',
   'badge',
+  'polygon',
+  'burst',
   'none',
 ] as const;
 export type ShapeKind = (typeof SHAPES)[number];
@@ -24,6 +26,8 @@ export const SHAPE_LABELS: Record<ShapeKind, string> = {
   star: 'Star',
   heart: 'Heart',
   badge: 'Badge',
+  polygon: 'Polygon',
+  burst: 'Burst',
   none: 'None',
 };
 
@@ -134,6 +138,12 @@ export interface IconState {
   shape: ShapeKind;
   /** Corner radius for the rounded square, as a fraction of the shape size (0..0.5). */
   cornerRadius: number;
+  /** Sides for `polygon`, points for `burst`. */
+  sides: number;
+  /** Spike depth for `burst`, 0..1. */
+  innerRatio: number;
+  /** Rotation of the silhouette itself, in degrees. */
+  shapeRotation: number;
   fill: Fill;
   border: Border;
   shadow: Shadow;
@@ -192,6 +202,9 @@ export const RANGES = {
   opacity: { min: 0, max: 1, step: 0.01 },
   letterSpacing: { min: -0.1, max: 0.3, step: 0.01 },
   strokeWidth: { min: 0, max: 0.3, step: 0.01 },
+  sides: { min: 3, max: 24, step: 1 },
+  innerRatio: { min: 0.2, max: 0.95, step: 0.01 },
+  shapeRotation: { min: -180, max: 180, step: 1 },
 } as const satisfies Record<string, Range>;
 
 export const EXPORT_SIZES = [64, 128, 256, 512] as const;

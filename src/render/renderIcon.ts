@@ -22,7 +22,12 @@ export function renderIcon(
   ctx.save();
   ctx.clearRect(0, 0, size, size);
   const box = shapeBox(size);
-  const path = shapePath(state.shape, box, state.cornerRadius);
+  const path = shapePath(state.shape, box, {
+    cornerRadius: state.cornerRadius,
+    sides: state.sides,
+    innerRatio: state.innerRatio,
+    rotation: state.shapeRotation,
+  });
   const cx = box.x + box.s / 2;
   const cy = box.y + box.s / 2;
 

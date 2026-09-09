@@ -74,6 +74,16 @@ describe('sanitizeIcon', () => {
     expect(icon.content).toEqual({ kind: 'symbol', symbol: 'crown', color: '#ffffff', shadow: false });
   });
 
+  it('clamps the new shape controls and rounds the side count', () => {
+    const icon = sanitizeIcon({ shape: 'burst', sides: 99.7, innerRatio: -3, shapeRotation: 900 });
+    expect(icon.shape).toBe('burst');
+    expect(icon.sides).toBe(24);
+    expect(icon.innerRatio).toBe(0.2);
+    expect(icon.shapeRotation).toBe(180);
+    expect(sanitizeIcon({ shape: 'polygon', sides: 3.4 }).sides).toBe(3);
+    expect(sanitizeIcon({}).sides).toBe(DEFAULT_ICON.sides);
+  });
+
   it('returns the defaults for non-objects', () => {
     expect(sanitizeIcon(null)).toEqual(DEFAULT_ICON);
     expect(sanitizeIcon('x')).toEqual(DEFAULT_ICON);

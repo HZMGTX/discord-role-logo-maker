@@ -136,6 +136,23 @@ export function shieldPath(box: Box): Path2D {
   return p;
 }
 
+/** An N-pointed starburst: the seal look, with any number of spikes. */
+function burstPath(box: Box, points: number, innerRatio: number): Path2D {
+  const cx = box.x + box.s / 2;
+  const cy = box.y + box.s / 2;
+  const outer = box.s / 2;
+  const inner = outer * innerRatio;
+  const vertices: Array<[number, number]> = [];
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = -Math.PI / 2 + (i / (points * 2)) * TAU;
+    vertices.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+  }
+  const p = new Path2D();
+  polygon(p, vertices);
+  return p;
+}
+
 function badgePath(box: Box): Path2D {
   const cx = box.x + box.s / 2;
   const cy = box.y + box.s / 2;
@@ -152,8 +169,51 @@ function badgePath(box: Box): Path2D {
   return p;
 }
 
-/** The outline of a shape inside `box`, or null for the transparent "none" shape. */
-export function shapePath(kind: ShapeKind, box: Box, cornerRadius: number): Path2D | null {
+export interface ShapeOptions {
+  /** Rounded-square corner radius, as a fraction of the shape size. */
+  cornerRadius?: number;
+  /** Sides for `polygon`, points for `burst`. */
+  sides?: number;
+  /** Inner radius ratio for `burst`, 0..1. */
+  innerRatio?: number;
+  /** Rotates the silhouette itself, in degrees. */
+  rotation?: number;
+}
+
+function rotatePath(path: Path2D, box: Box, degrees: number): Path2D {
+  if (!degrees) return path;
+  const cx = box.x + box.s / 2;
+  const cy = box.y + box.s / 2;
+  const matrix = new DOMMatrix()
+    .translateSelf(cx, cy)
+    .rotateSelf(degrees)
+    .translateSelf(-cx, -cy);
+  const rotated = new Path2D();
+  rotated.addPath(path, matrix);
+  return rotated;
+}
+
+/**
+ * The outline of a shape inside `box`, or null for the transparent "none"
+ * shape. `options` accepts a bare corner radius for backwards compatibility.
+ */
+export function shapePath(
+  kind: ShapeKind,
+  box: Box,
+  options: number | ShapeOptions = {},
+): Path2D | null {
+  const opts: ShapeOptions = typeof options === 'number' ? { cornerRadius: options } : options;
+  const cornerRadius = opts.cornerRadius ?? 0.25;
+  const path = basePath(kind, box, opts, cornerRadius);
+  return path && opts.rotation ? rotatePath(path, box, opts.rotation) : path;
+}
+
+function basePath(
+  kind: ShapeKind,
+  box: Box,
+  opts: ShapeOptions,
+  cornerRadius: number,
+): Path2D | null {
   const { x, y, s } = box;
   switch (kind) {
     case 'circle': {
@@ -184,6 +244,14 @@ export function shapePath(kind: ShapeKind, box: Box, cornerRadius: number): Path
     }
     case 'star':
       return starPath(box);
+    case 'polygon':
+      return regularPolygon(box, Math.round(Math.min(12, Math.max(3, opts.sides ?? 5))), -Math.PI / 2);
+    case 'burst':
+      return burstPath(
+        box,
+        Math.round(Math.min(24, Math.max(3, opts.sides ?? 8))),
+        Math.min(0.95, Math.max(0.2, opts.innerRatio ?? 0.62)),
+      );
     case 'heart':
       return heartPath(box);
     case 'shield':

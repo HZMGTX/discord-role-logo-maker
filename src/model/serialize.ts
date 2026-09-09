@@ -104,6 +104,9 @@ export function sanitizeIcon(raw: unknown): IconState {
     v: 1,
     shape: oneOf(raw.shape, SHAPES, d.shape),
     cornerRadius: num(raw.cornerRadius, d.cornerRadius, RANGES.cornerRadius),
+    sides: Math.round(num(raw.sides, d.sides, RANGES.sides)),
+    innerRatio: num(raw.innerRatio, d.innerRatio, RANGES.innerRatio),
+    shapeRotation: num(raw.shapeRotation, d.shapeRotation, RANGES.shapeRotation),
     fill: {
       type: oneOf(fill.type, FILL_TYPES, d.fill.type),
       color1: color(fill.color1, d.fill.color1),
