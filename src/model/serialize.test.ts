@@ -251,9 +251,11 @@ describe('sanitizeIcon', () => {
     const { fill } = icon.background;
     expect(fill.type).toBe('conic');
     expect(fill.stops).toHaveLength(MAX_FILL_STOPS);
-    expect(fill.stops.map((s) => s.offset)).toEqual([...fill.stops.map((s) => s.offset)].sort((a, b) => a - b));
-    expect(fill.stops[0]).toEqual({ offset: 0, color: '#222222' });
-    expect(fill.stops.some((s) => s.color === '#ffffff')).toBe(true);
+    // Order is preserved: a canvas gradient sorts its own stops, and keeping
+    // the written order is what stops editor rows renumbering on reload.
+    expect(fill.stops[0]).toEqual({ offset: 0.9, color: '#111111' });
+    expect(fill.stops[1]).toEqual({ offset: 0, color: '#222222' });
+    expect(fill.stops[2]).toEqual({ offset: 0.4, color: '#ffffff' });
     expect(fill.cx).toBe(-0.5);
     expect(fill.radius).toBe(1.5);
   });

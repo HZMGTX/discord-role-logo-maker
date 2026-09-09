@@ -1,4 +1,5 @@
 import { ICON_FRIENDLY_EMOJI } from '../emoji/catalog';
+import { mix } from '../render/color';
 import { DEFAULT_BACKGROUND, fillOf, makeLayer } from './defaults';
 import { FILL_TYPES, SHAPES, SYMBOL_IDS, type IconState } from './types';
 
@@ -44,7 +45,14 @@ export function randomizeIcon(): IconState {
       sides: 3 + Math.floor(Math.random() * 9),
       innerRatio: 0.45 + Math.random() * 0.3,
       rotation: 0,
-      fill: fillOf({ type: pick(FILL_TYPES), color1, color2, angle: pick([45, 90, 135, 160, 180]) }),
+      fill: (() => {
+        const type = pick(FILL_TYPES);
+        // A conic sweep between two colors wraps with a hard seam at the start
+        // angle, so give it a middle color and let it read as a real sweep.
+        const stops =
+          type === 'conic' ? [{ offset: 0.5, color: mix(color1, color2, 0.5) }] : [];
+        return fillOf({ type, color1, color2, angle: pick([45, 90, 135, 160, 180]), stops });
+      })(),
       border: Math.random() < 0.5 ? { width: 0.04, color: '#ffffff' } : { width: 0, color: '#ffffff' },
       gloss: Math.random() < 0.3,
       shadow: { ...DEFAULT_BACKGROUND.shadow, enabled: Math.random() < 0.3 },

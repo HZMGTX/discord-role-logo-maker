@@ -61,12 +61,40 @@ function paintArtwork(
 }
 
 /**
+ * Whether a layer would paint no pixels at all. A mask that paints nothing
+ * would erase everything it masks, which reads as the masked layer vanishing
+ * for no reason, so such a layer is treated as no mask.
+ */
+function paintsNothing(layer: Layer): boolean {
+  const c = layer.content;
+  switch (c.kind) {
+    case 'none':
+      return true;
+    case 'image':
+      return c.src === null;
+    case 'shape':
+      return c.shape === 'none';
+    case 'text':
+      return c.text.trim() === '';
+    case 'emoji':
+      return c.emoji.trim() === '';
+    default:
+      return false;
+  }
+}
+
+/**
  * A layer needs a scratch buffer when it carries an effect, is masked by
  * another layer, or blends destructively. Everything else is painted straight
  * onto the icon, exactly as it was before effects existed.
+ *
+ * The mask argument is the resolved layer, not the raw id: a reference that
+ * points at nothing must not divert the layer to the buffered path, or the
+ * design would render one way in memory and another after a reload clears the
+ * dangling reference.
  */
-function needsScratch(layer: Layer): boolean {
-  return hasEffects(layer.effects) || layer.clipTo !== null || isDestructive(layer.blend);
+function needsScratch(layer: Layer, mask: Layer | null): boolean {
+  return hasEffects(layer.effects) || mask !== null || isDestructive(layer.blend);
 }
 
 /** Recolors a buffer's silhouette in place, keeping its alpha. */
@@ -86,13 +114,30 @@ function recolor(scratch: Scratch, color: string, alpha: number, size: number): 
  * current transform's units, so this runs with no transform at all and there
  * is nothing to convert.
  */
-function paintDecoration(deco: Scratch, art: Scratch, layer: Layer, size: number): void {
+function paintDecoration(
+  deco: Scratch,
+  art: Scratch,
+  layer: Layer,
+  size: number,
+  dropShadow: boolean,
+): void {
   const { ctx } = deco;
   const { glow, outline } = layer.effects;
   const px = deco.px;
   const scale = deco.scale;
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  if (dropShadow) {
+    // Cast from the artwork, before the halo exists. Casting it later, from
+    // the finished buffer, would shadow the halo instead of the mark.
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+    ctx.shadowBlur = 0.04 * size * scale;
+    ctx.shadowOffsetY = 0.02 * size * scale;
+    ctx.drawImage(art.canvas, 0, 0);
+    ctx.restore();
+  }
 
   if (glow) {
     ctx.save();
@@ -107,13 +152,15 @@ function paintDecoration(deco: Scratch, art: Scratch, layer: Layer, size: number
 
   if (outline && outline.width > 0) {
     const radius = outline.width * size * scale;
-    // Enough copies that the ring reads as a smooth edge at any thickness.
-    const steps = Math.max(12, Math.min(48, Math.round(radius * 6)));
+    // Each copy is a full-bitmap draw, and a full stack of outlined layers
+    // repaints on every slider move, so the ring buys smoothness with a
+    // budget. A slight blur fills the gaps that fewer copies leave.
+    const steps = Math.max(8, Math.min(20, Math.round(radius * 2)));
     // The artwork is drawn off the bitmap so only its hard-edged shadow lands.
     const far = px * 2;
     ctx.save();
     ctx.shadowColor = outline.color;
-    ctx.shadowBlur = 0;
+    ctx.shadowBlur = Math.min(radius * 0.35, 2 * scale);
     for (let i = 0; i < steps; i += 1) {
       const angle = (i / steps) * TAU;
       ctx.shadowOffsetX = far + Math.cos(angle) * radius;
@@ -181,17 +228,24 @@ function drawLayerBuffered(
 
     // Composing happens while the buffer is still checked out of the pool.
     const destructive = isDestructive(layer.blend);
-    const compose = (source: Scratch) => {
+    // A shadow is part of what gets composited, so a layer that removes pixels
+    // would erase through its own shadow. Skip it for those.
+    const dropShadow =
+      !destructive && 'shadow' in layer.content && layer.content.shadow === true;
+
+    const compose = (source: Scratch, shadowHere: boolean) => {
       ctx.save();
       // Erase and stencil take pixels away, so they are always confined to the
       // silhouette however the layer's own clip switch is set. Unconfined, a
       // stencil layer would wipe the whole canvas.
       if (clipPath && (layer.clip || destructive)) ctx.clip(clipPath);
-      ctx.globalAlpha = layer.transform.opacity;
+      // Stencil multiplies the whole canvas by the layer's alpha, so a partial
+      // opacity would fade the entire icon and dropping to zero would wipe it.
+      // Keeping it at full strength makes the slider mean nothing rather than
+      // something surprising.
+      ctx.globalAlpha = layer.blend === 'stencil' ? 1 : layer.transform.opacity;
       ctx.globalCompositeOperation = blendToComposite(layer.blend);
-      // A shadow is part of what gets composited, so a layer that removes
-      // pixels would erase through its own shadow. Skip it for those.
-      if (!destructive && 'shadow' in layer.content && layer.content.shadow) {
+      if (shadowHere) {
         ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
         ctx.shadowBlur = 0.04 * size * scale;
         ctx.shadowOffsetY = 0.02 * size * scale;
@@ -203,13 +257,13 @@ function drawLayerBuffered(
     const { glow, outline } = layer.effects;
     if (glow || outline) {
       const done = withScratch(owner, size, scale, (deco) => {
-        paintDecoration(deco, art, layer, size);
-        compose(deco);
+        paintDecoration(deco, art, layer, size, dropShadow);
+        compose(deco, false);
         return true;
       });
-      if (!done) compose(art);
+      if (!done) compose(art, dropShadow);
     } else {
-      compose(art);
+      compose(art, dropShadow);
     }
     return result;
   });
@@ -277,9 +331,8 @@ export function renderIcon(
   for (const layer of state.layers) {
     if (layer.hidden || layer.transform.opacity <= 0 || layer.content.kind === 'none') continue;
     const target = layer.clipTo === null ? null : (byId.get(layer.clipTo) ?? null);
-    // An empty mask layer would blank whatever it masks, which reads as a bug.
-    const mask = target && target.content.kind !== 'none' ? target : null;
-    const drawn = needsScratch(layer)
+    const mask = target && !paintsNothing(target) ? target : null;
+    const drawn = needsScratch(layer, mask)
       ? drawLayerBuffered(ctx, layer, mask, box, path, size, scale, owner)
       : null;
     // No scratch canvas available: draw straight on rather than skip the layer.

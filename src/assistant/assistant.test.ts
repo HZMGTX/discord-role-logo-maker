@@ -302,3 +302,56 @@ describe('refineIcon', () => {
     expect(refineIcon(DEFAULT_ICON, '')).toBeNull();
   });
 });
+
+describe('tweaks that touch gradients and outlines', () => {
+  const withStops = () => {
+    const icon = structuredClone(DEFAULT_ICON);
+    icon.background.fill = {
+      type: 'linear',
+      color1: '#ff0000',
+      color2: '#0000ff',
+      angle: 135,
+      stops: [{ offset: 0.5, color: '#ffff00' }],
+      cx: 0,
+      cy: 0,
+      radius: 0.55,
+    };
+    return icon;
+  };
+
+  it('drops middle colors when repainting, so no stripe of the old palette survives', () => {
+    const result = refineIcon(withStops(), 'make it green');
+    expect(result).not.toBeNull();
+    expect(result?.icon.background.fill.stops).toEqual([]);
+    expect(result?.icon.background.fill.color1).not.toBe('#ff0000');
+  });
+
+  it('carries middle colors through darker and lighter', () => {
+    const darker = refineIcon(withStops(), 'make it darker');
+    expect(darker?.icon.background.fill.stops).toHaveLength(1);
+    expect(darker?.icon.background.fill.stops[0]?.color).not.toBe('#ffff00');
+    expect(darker?.icon.background.fill.stops[0]?.offset).toBe(0.5);
+  });
+
+  it('mirrors middle colors when swapping the ends', () => {
+    const icon = withStops();
+    icon.background.fill.stops = [{ offset: 0.25, color: '#ffff00' }];
+    const result = refineIcon(icon, 'invert');
+    expect(result?.icon.background.fill.color1).toBe('#0000ff');
+    expect(result?.icon.background.fill.stops[0]?.offset).toBeCloseTo(0.75);
+  });
+
+  it('outlines the mark when the prompt is about the mark, not the plate', () => {
+    const marked = refineIcon(DEFAULT_ICON, 'add an outline to the icon');
+    expect(marked?.icon.layers[0]?.effects.outline).not.toBeNull();
+    // A plain "add a border" still means the plate's rim.
+    const plated = refineIcon(DEFAULT_ICON, 'add a border');
+    expect(plated?.icon.layers[0]?.effects.outline).toBeNull();
+    expect(plated?.icon.background.border.width).toBeGreaterThan(0);
+  });
+
+  it('understands a conic sweep', () => {
+    const result = refineIcon(DEFAULT_ICON, 'make it a conic gradient');
+    expect(result?.icon.background.fill.type).toBe('conic');
+  });
+});

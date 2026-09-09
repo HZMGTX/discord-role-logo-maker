@@ -1,4 +1,6 @@
 import type { Fill } from '../model/types';
+
+const HEX = /^#[0-9a-f]{6}$/i;
 import type { Box } from './shapes';
 
 /**
@@ -13,6 +15,9 @@ function addStops(gradient: CanvasGradient, fill: Fill): void {
     // blank the whole icon. Presets and the reset button reach the renderer
     // without passing through sanitize, so clamp here as well.
     const offset = Number.isFinite(stop.offset) ? Math.min(1, Math.max(0, stop.offset)) : 0.5;
+    // A color the canvas cannot parse throws too, so an unreadable stop is
+    // skipped rather than allowed to blank every canvas in the app.
+    if (!HEX.test(stop.color)) continue;
     gradient.addColorStop(offset, stop.color);
   }
   gradient.addColorStop(1, fill.color2);

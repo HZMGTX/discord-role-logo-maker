@@ -1,4 +1,5 @@
 import { MAX_FILL_STOPS, RANGES, type Fill, type FillType } from '../../model/types';
+import { mix } from '../../render/color';
 import { ColorField } from './ColorField';
 import { Field } from './Field';
 import { Segmented } from './Segmented';
@@ -25,26 +26,37 @@ const END_LABELS: Record<FillType, [string, string]> = {
   conic: ['Start color', 'End color'],
 };
 
-/** A colour to drop in when the user adds a stop, halfway between the ends. */
-function nextStopColor(fill: Fill): string {
-  const last = fill.stops[fill.stops.length - 1];
-  return last ? last.color : fill.color2;
-}
-
-/** A free position for a new stop that does not land on an existing one. */
+/**
+ * Where a new stop should sit: the middle of the widest gap in the ramp, so
+ * repeated clicks spread out instead of piling up on one spot.
+ */
 function nextStopOffset(fill: Fill): number {
-  if (fill.stops.length === 0) return 0.5;
   const sorted = [...fill.stops].sort((a, b) => a.offset - b.offset);
-  let widest = { start: 0, end: 1 };
+  let best = { start: 0, end: 1 };
   let previous = 0;
   for (const stop of sorted) {
-    if (stop.offset - previous > widest.end - widest.start) {
-      widest = { start: previous, end: stop.offset };
-    }
+    if (stop.offset - previous > best.end - best.start) best = { start: previous, end: stop.offset };
     previous = stop.offset;
   }
-  if (1 - previous > widest.end - widest.start) widest = { start: previous, end: 1 };
-  return Math.round(((widest.start + widest.end) / 2) * 100) / 100;
+  if (1 - previous > best.end - best.start) best = { start: previous, end: 1 };
+  return Math.round(((best.start + best.end) / 2) * 100) / 100;
+}
+
+/** The color already at `offset`, so a new stop starts invisible and is then tuned. */
+function colorAt(fill: Fill, offset: number): string {
+  const ramp = [
+    { offset: 0, color: fill.color1 },
+    ...[...fill.stops].sort((a, b) => a.offset - b.offset),
+    { offset: 1, color: fill.color2 },
+  ];
+  for (let i = 1; i < ramp.length; i += 1) {
+    const before = ramp[i - 1];
+    const after = ramp[i];
+    if (!before || !after || offset > after.offset) continue;
+    const span = after.offset - before.offset;
+    return mix(before.color, after.color, span <= 0 ? 0 : (offset - before.offset) / span);
+  }
+  return fill.color2;
 }
 
 /**
@@ -55,7 +67,6 @@ function nextStopOffset(fill: Fill): number {
 export function FillControls({ fill, patch, label = 'Fill type' }: FillControlsProps) {
   const [startLabel, endLabel] = END_LABELS[fill.type];
   const gradient = fill.type !== 'solid';
-  const centered = fill.type === 'radial' || fill.type === 'conic';
 
   return (
     <>
@@ -100,11 +111,7 @@ export function FillControls({ fill, patch, label = 'Fill type' }: FillControlsP
                 onChange={(value) =>
                   patch((f) => {
                     const target = f.stops[index];
-                    if (!target) return;
-                    target.offset = value;
-                    // Kept sorted here as well as on load, so the numbering a
-                    // row shows now is the numbering it keeps.
-                    f.stops.sort((a, b) => a.offset - b.offset);
+                    if (target) target.offset = value;
                   })
                 }
               />
@@ -138,8 +145,8 @@ export function FillControls({ fill, patch, label = 'Fill type' }: FillControlsP
                 disabled={fill.stops.length >= MAX_FILL_STOPS}
                 onClick={() =>
                   patch((f) => {
-                    f.stops.push({ offset: nextStopOffset(f), color: nextStopColor(f) });
-                    f.stops.sort((a, b) => a.offset - b.offset);
+                    const offset = nextStopOffset(f);
+                    f.stops.push({ offset, color: colorAt(f, offset) });
                   })
                 }
               >
@@ -152,7 +159,6 @@ export function FillControls({ fill, patch, label = 'Fill type' }: FillControlsP
                   patch((f) => {
                     [f.color1, f.color2] = [f.color2, f.color1];
                     for (const stop of f.stops) stop.offset = 1 - stop.offset;
-                    f.stops.sort((a, b) => a.offset - b.offset);
                   })
                 }
               >
@@ -173,7 +179,7 @@ export function FillControls({ fill, patch, label = 'Fill type' }: FillControlsP
               }
             />
           )}
-          {centered && (
+          {(
             <>
               <Slider
                 label="Center across"

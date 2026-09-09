@@ -90,7 +90,7 @@ export function TextControls({ content, patch }: TextControlsProps) {
         }
       />
       <Toggle
-        label="Outline"
+        label="Letter outline"
         checked={content.stroke !== null}
         onChange={(checked) =>
           patch((c) => {
@@ -101,7 +101,7 @@ export function TextControls({ content, patch }: TextControlsProps) {
       {content.stroke && (
         <>
           <Slider
-            label="Outline width"
+            label="Letter outline width"
             value={content.stroke.width}
             range={RANGES.strokeWidth}
             format={percent}
@@ -112,7 +112,7 @@ export function TextControls({ content, patch }: TextControlsProps) {
             }
           />
           <ColorField
-            label="Outline color"
+            label="Letter outline color"
             value={content.stroke.color}
             onChange={(hex) =>
               patch((c) => {

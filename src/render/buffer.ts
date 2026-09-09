@@ -90,7 +90,15 @@ export function withScratch<T>(
     scratch.px = px;
     scratch.scale = px / size;
     ctx.setTransform(scratch.scale, 0, 0, scratch.scale, 0, 0);
-    return draw(scratch);
+    // Wrapping the caller's drawing means an unbalanced save, or a clip left
+    // behind, is undone here. reset() alone cannot lift a clip, and a stale
+    // clip would go on to bound the clearRect that is meant to remove it.
+    ctx.save();
+    try {
+      return draw(scratch);
+    } finally {
+      ctx.restore();
+    }
   } finally {
     live -= 1;
   }

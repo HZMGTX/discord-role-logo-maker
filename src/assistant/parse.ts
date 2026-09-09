@@ -380,6 +380,7 @@ function parseFlags(
     flags.transparent = true;
   }
   if (flag(['solid']) === true) flags.fill = 'solid';
+  else if (flag(['conic', 'sweep', 'wheel', 'rainbow']) === true) flags.fill = 'conic';
   else if (flag(['radial']) === true) flags.fill = 'radial';
   else if (flag(['gradient']) === true) flags.fill = 'linear';
   const emoji = flag(['emoji', 'emojis']);

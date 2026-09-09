@@ -347,7 +347,10 @@ function buildIcon(
 }
 
 function fillLabel(fill: FillType): string {
-  return fill === 'solid' ? 'solid' : fill === 'radial' ? 'radial' : 'gradient';
+  if (fill === 'solid') return 'solid';
+  if (fill === 'radial') return 'radial';
+  if (fill === 'conic') return 'colour sweep';
+  return 'gradient';
 }
 
 function shuffle<T>(items: readonly T[], rng: () => number): T[] {

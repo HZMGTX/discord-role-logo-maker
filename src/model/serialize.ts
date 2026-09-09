@@ -62,6 +62,11 @@ function str(x: unknown, fallback: string, max: number): string {
   return typeof x === 'string' ? x.slice(0, max) : fallback;
 }
 
+/**
+ * Stops keep the order they were written in. A canvas gradient sorts its own
+ * stops, so order changes no pixel, and leaving it alone means a stop keeps
+ * its place in the editor while the user drags it past a neighbour.
+ */
 function sanitizeStops(raw: unknown, base: FillStop[]): FillStop[] {
   if (!Array.isArray(raw)) return base.map((s) => ({ ...s }));
   return raw
@@ -70,8 +75,7 @@ function sanitizeStops(raw: unknown, base: FillStop[]): FillStop[] {
     .map((s) => ({
       offset: num(s.offset, 0.5, RANGES.stopOffset),
       color: color(s.color, '#ffffff'),
-    }))
-    .sort((a, b) => a.offset - b.offset);
+    }));
 }
 
 function sanitizeFill(raw: unknown, base: Fill): Fill {

@@ -172,6 +172,39 @@ describe('model icon conversion', () => {
     expect(plain.background.fill.stops).toEqual([]);
   });
 
+  it('keeps the blend, the mask and the effect strengths a tweak cannot describe', () => {
+    const tuned = sanitizeIcon({
+      v: 2,
+      background: {},
+      layers: [
+        { id: 'mask', content: { kind: 'symbol', symbol: 'star' } },
+        {
+          id: 'art',
+          content: { kind: 'symbol', symbol: 'gem', color: '#ffffff' },
+          blend: 'multiply',
+          clipTo: 'mask',
+          effects: {
+            glow: { color: '#00ff00', blur: 0.19, opacity: 0.15 },
+            outline: { width: 0.1, color: '#123456' },
+            tint: null,
+          },
+        },
+      ],
+    });
+    const back = toIconState(toModelIcon(tuned), tuned);
+    const art = back.layers[1];
+    expect(art?.blend).toBe('multiply');
+    expect(art?.clipTo).toBe(back.layers[0]?.id);
+    // The colors come from the model; the strengths come from the design.
+    expect(art?.effects.glow).toEqual({ color: '#00ff00', blur: 0.19, opacity: 0.15 });
+    expect(art?.effects.outline).toEqual({ width: 0.1, color: '#123456' });
+    // Clearing the color still turns the effect off.
+    const model = toModelIcon(tuned);
+    const layer = model.layers[1];
+    if (layer) layer.glowColor = '';
+    expect(toIconState(model, tuned).layers[1]?.effects.glow).toBeNull();
+  });
+
   it('cleans up sloppy model output', () => {
     const icon = toIconState({
       shape: 'badge',

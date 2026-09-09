@@ -91,7 +91,7 @@ export function ShapeContentControls({ content, patch }: ShapeContentControlsPro
         }
       />
       <Slider
-        label="Outline"
+        label="Shape outline"
         value={content.border.width}
         range={RANGES.borderWidth}
         format={percent}
@@ -103,7 +103,7 @@ export function ShapeContentControls({ content, patch }: ShapeContentControlsPro
       />
       {content.border.width > 0 && (
         <ColorField
-          label="Outline color"
+          label="Shape outline color"
           value={content.border.color}
           onChange={(hex) =>
             patch((c) => {

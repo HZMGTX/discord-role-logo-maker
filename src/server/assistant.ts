@@ -15,6 +15,7 @@ import {
   type Fill,
   type FontId,
   type IconState,
+  type LayerEffects,
 } from '../model/types';
 
 /**
@@ -207,6 +208,28 @@ function toContent(model: ModelLayer): Content {
 }
 
 /**
+ * Effects for a layer the model answered with. The schema carries a color per
+ * effect and nothing else, so the strengths the user tuned are kept from the
+ * layer being edited instead of snapping back to the defaults on every tweak.
+ */
+function carriedEffects(layer: ModelLayer, previous: LayerEffects | undefined): LayerEffects {
+  const glow = optionalHex(layer.glowColor);
+  const outline = optionalHex(layer.outlineColor);
+  const tint = optionalHex(layer.tintColor);
+  return {
+    glow: glow
+      ? {
+          color: glow,
+          blur: previous?.glow?.blur ?? 0.06,
+          opacity: previous?.glow?.opacity ?? 0.75,
+        }
+      : null,
+    outline: outline ? { color: outline, width: previous?.outline?.width ?? 0.014 } : null,
+    tint: tint ? { color: tint, amount: previous?.tint?.amount ?? 1 } : null,
+  };
+}
+
+/**
  * The gradient detail the model's flat schema cannot carry. A tweak such as
  * "make it darker" would otherwise flatten a hand-tuned gradient back to two
  * colors, so the centre, the spread and any extra stops come from the icon the
@@ -243,6 +266,15 @@ export function toIconState(model: ModelIcon, previous?: IconState): IconState {
     .map((l) => l.content)
     .filter((c): c is Extract<Content, { kind: 'image' }> => c.kind === 'image' && c.src !== null);
   let nextImage = 0;
+  // Layers come back with fresh ids, so a mask carried over from the design
+  // being edited has to be renamed to match, or it would point at nothing and
+  // be dropped. Layers line up by position, which is how images carry too.
+  const carriedMask = (index: number): string | null => {
+    const was = previous?.layers[index]?.clipTo;
+    if (!was) return null;
+    const target = previous?.layers.findIndex((l) => l.id === was) ?? -1;
+    return target >= 0 ? `m${target}` : null;
+  };
   const layers = (model.layers ?? [])
     .slice(0, MAX_LAYERS)
     .map((layer, index) => ({
@@ -263,20 +295,12 @@ export function toIconState(model: ModelIcon, previous?: IconState): IconState {
         flipX: false,
         flipY: false,
       },
-      blend: 'normal' as const,
+      // Blend mode and mask have no place in the flat schema, so they come
+      // from the layer being edited rather than being reset on every tweak.
+      blend: previous?.layers[index]?.blend ?? ('normal' as const),
       clip: layer.clip !== false,
-      clipTo: null,
-      effects: {
-        glow: optionalHex(layer.glowColor)
-          ? { color: optionalHex(layer.glowColor) as string, blur: 0.06, opacity: 0.75 }
-          : null,
-        outline: optionalHex(layer.outlineColor)
-          ? { width: 0.014, color: optionalHex(layer.outlineColor) as string }
-          : null,
-        tint: optionalHex(layer.tintColor)
-          ? { color: optionalHex(layer.tintColor) as string, amount: 1 }
-          : null,
-      },
+      clipTo: carriedMask(index),
+      effects: carriedEffects(layer, previous?.layers[index]?.effects),
     }))
     .filter((layer) => layer.content.kind !== 'none');
 

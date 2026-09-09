@@ -2,7 +2,14 @@ import { cloneIcon } from '../model/defaults';
 import { ensureTopLayer } from '../model/layers';
 import { randomizeIcon } from '../model/random';
 import { sanitizeIcon } from '../model/serialize';
-import { RANGES, SHAPE_LABELS, type Content, type IconState, type SymbolId } from '../model/types';
+import {
+  RANGES,
+  SHAPE_LABELS,
+  type Content,
+  type Fill,
+  type IconState,
+  type SymbolId,
+} from '../model/types';
 import { darken, lighten, luminance } from '../render/color';
 import { SYMBOLS } from '../render/symbols';
 import { findKeyword, isNegated, parsePrompt, type ParsedPrompt } from './parse';
@@ -57,6 +64,24 @@ function joinChanges(changes: readonly string[]): string {
 
 function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * Sets both ends of a fill and drops any middle colors. Those belonged to the
+ * palette being replaced, so keeping them leaves a stripe of the old color
+ * across the new one.
+ */
+function repaintFill(fill: Fill, color1: string, color2: string): void {
+  fill.color1 = color1;
+  fill.color2 = color2;
+  fill.stops = [];
+}
+
+/** Applies a color transform to every color in a fill, middles included. */
+function shadeFill(fill: Fill, shade: (hex: string) => string): void {
+  fill.color1 = shade(fill.color1);
+  fill.color2 = shade(fill.color2);
+  for (const stop of fill.stops) stop.color = shade(stop.color);
 }
 
 /** The color a glow should take, when the content has one of its own. */
@@ -152,35 +177,41 @@ export function refineIcon(current: IconState, prompt: string): Refinement | nul
     if (mentionsContent && setContentColor(layer.content, firstColor.hex)) {
       changes.push(`colored the ${layer.content.kind} ${firstColor.name}`);
     } else if (mentionsContent && !mentionsBorder) {
-      icon.background.fill.color1 = firstColor.hex;
-      icon.background.fill.color2 = icon.background.fill.type === 'solid' ? firstColor.hex : darken(firstColor.hex, 0.35);
+      repaintFill(
+        icon.background.fill,
+        firstColor.hex,
+        icon.background.fill.type === 'solid' ? firstColor.hex : darken(firstColor.hex, 0.35),
+      );
       changes.push(`made the background ${firstColor.name} (emoji keep their own colors)`);
     } else if (mentionsBorder) {
       icon.background.border.color = firstColor.hex;
       if (icon.background.border.width === 0) icon.background.border.width = 0.04;
       changes.push(`made the border ${firstColor.name}`);
     } else if (secondColor) {
-      icon.background.fill.color1 = firstColor.hex;
-      icon.background.fill.color2 = secondColor.hex;
+      repaintFill(icon.background.fill, firstColor.hex, secondColor.hex);
       if (icon.background.fill.type === 'solid') icon.background.fill.type = 'linear';
       changes.push(`used ${firstColor.name} and ${secondColor.name}`);
     } else {
-      icon.background.fill.color1 = firstColor.hex;
-      icon.background.fill.color2 = icon.background.fill.type === 'solid' ? firstColor.hex : darken(firstColor.hex, 0.35);
+      repaintFill(
+        icon.background.fill,
+        firstColor.hex,
+        icon.background.fill.type === 'solid' ? firstColor.hex : darken(firstColor.hex, 0.35),
+      );
       changes.push(`made it ${firstColor.name}`);
     }
   } else if (say(['darker', 'dark', 'deeper', 'moodier', 'dimmer'])) {
-    icon.background.fill.color1 = darken(icon.background.fill.color1, 0.25);
-    icon.background.fill.color2 = darken(icon.background.fill.color2, 0.25);
+    shadeFill(icon.background.fill, (hex) => darken(hex, 0.25));
     changes.push('made it darker');
   } else if (say(['lighter', 'brighter', 'paler', 'softer'])) {
-    icon.background.fill.color1 = lighten(icon.background.fill.color1, 0.2);
-    icon.background.fill.color2 = lighten(icon.background.fill.color2, 0.2);
+    shadeFill(icon.background.fill, (hex) => lighten(hex, 0.2));
     changes.push('made it lighter');
   }
 
   if (say(['swap', 'flip', 'invert', 'reverse'])) {
-    [icon.background.fill.color1, icon.background.fill.color2] = [icon.background.fill.color2, icon.background.fill.color1];
+    const fill = icon.background.fill;
+    [fill.color1, fill.color2] = [fill.color2, fill.color1];
+    // Mirror the middles too, or an off-centre stop lands on the wrong side.
+    for (const stop of fill.stops) stop.offset = 1 - stop.offset;
     changes.push('swapped the colors');
   }
 
@@ -214,7 +245,20 @@ export function refineIcon(current: IconState, prompt: string): Refinement | nul
   }
 
   // Effects
-  if (parsed.flags.border === true) {
+  // "Outline" means the plate's rim or a line round the mark, depending on
+  // what the sentence is about. The parser sets the border flag from the same
+  // words, so the two readings are separated here rather than by that flag.
+  const outlineWords = say(['outline', 'outlined', 'stroke', 'edge']);
+  const outlineTheMark = outlineWords && mentionsContent;
+  if (outlineTheMark) {
+    if (parsed.flags.border === false) {
+      layer.effects.outline = null;
+      changes.push('removed the outline');
+    } else {
+      layer.effects.outline = { width: 0.014, color: '#000000' };
+      changes.push('outlined it');
+    }
+  } else if (parsed.flags.border === true) {
     if (say(['thicker', 'thick', 'bolder', 'wider'])) {
       icon.background.border.width = clamp(Math.max(icon.background.border.width, 0.03) + 0.02, 0, RANGES.borderWidth.max);
       changes.push('thickened the border');
@@ -237,17 +281,6 @@ export function refineIcon(current: IconState, prompt: string): Refinement | nul
     icon.background.shadow = { enabled: true, blur: 0.08, opacity: 0.6, dx: 0, dy: 0, color: icon.background.fill.color1 };
     layer.effects.glow = { color: contentColorOf(layer.content) ?? '#ffffff', blur: 0.06, opacity: 0.75 };
     changes.push('added a glow');
-  }
-  // "Outline" is ambiguous: it can mean the plate's border or a line round the
-  // mark. The border branch above already took it if the prompt read that way,
-  // so only outline the mark when the border was left alone.
-  if (
-    parsed.flags.border === undefined &&
-    mentionsContent &&
-    say(['outline', 'outlined', 'stroke', 'edge'])
-  ) {
-    layer.effects.outline = { width: 0.014, color: '#000000' };
-    changes.push('outlined it');
   }
   if (parsed.flags.gloss !== undefined && parsed.flags.gloss !== icon.background.gloss) {
     icon.background.gloss = parsed.flags.gloss;
@@ -328,7 +361,7 @@ export function refineIcon(current: IconState, prompt: string): Refinement | nul
     if (style.id === 'shiny' && parsed.flags.gloss !== undefined) continue;
     const palette = style.palettes?.[0];
     if (palette && !firstColor) {
-      [icon.background.fill.color1, icon.background.fill.color2] = palette;
+      repaintFill(icon.background.fill, palette[0], palette[1]);
       if (icon.background.fill.type === 'solid') icon.background.fill.type = style.fillType ?? 'linear';
     }
     if (style.fillType) icon.background.fill.type = style.fillType;
