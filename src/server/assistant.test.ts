@@ -138,6 +138,40 @@ describe('model icon conversion', () => {
     expect(back.layers[0]?.tintColor).toBe('#123456');
   });
 
+  it('keeps gradient detail the flat schema cannot describe', () => {
+    const tuned = {
+      ...DEFAULT_ICON,
+      background: {
+        ...DEFAULT_ICON.background,
+        fill: {
+          ...DEFAULT_ICON.background.fill,
+          type: 'radial' as const,
+          cx: 0.2,
+          cy: -0.15,
+          radius: 0.9,
+          stops: [{ offset: 0.35, color: '#00ff00' }],
+        },
+      },
+    };
+    // A tweak that says nothing about the fill must not flatten it.
+    const tweaked = toIconState({ ...toModelIcon(tuned), gloss: true }, tuned);
+    expect(tweaked.background.fill).toMatchObject({
+      cx: 0.2,
+      cy: -0.15,
+      radius: 0.9,
+      stops: [{ offset: 0.35, color: '#00ff00' }],
+    });
+    expect(tweaked.background.gloss).toBe(true);
+
+    // The model can still change the middle color, keeping where it sits.
+    const recolored = toIconState({ ...toModelIcon(tuned), color3: '#ff00ff' }, tuned);
+    expect(recolored.background.fill.stops).toEqual([{ offset: 0.35, color: '#ff00ff' }]);
+
+    // And it can drop the middle color by clearing it.
+    const plain = toIconState({ ...toModelIcon(tuned), color3: '' }, tuned);
+    expect(plain.background.fill.stops).toEqual([]);
+  });
+
   it('cleans up sloppy model output', () => {
     const icon = toIconState({
       shape: 'badge',

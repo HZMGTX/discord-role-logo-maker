@@ -123,6 +123,14 @@ describe('migrating a v1 icon', () => {
     });
   });
 
+  it('gives the migrated layer no effects and no mask', () => {
+    const icon = sanitizeIcon(V1_ICON);
+    expect(icon.layers[0]?.effects).toEqual({ glow: null, tint: null, outline: null });
+    expect(icon.layers[0]?.clipTo).toBeNull();
+    expect(icon.layers[0]?.blend).toBe('normal');
+    expect(icon.background.fill.stops).toEqual([]);
+  });
+
   it('turns empty content into a bare plate', () => {
     const icon = sanitizeIcon({ ...V1_ICON, content: { kind: 'none' } });
     expect(icon.layers).toEqual([]);
@@ -278,6 +286,21 @@ describe('sanitizeIcon', () => {
     const ids = icon.layers.map((l) => l.id);
     expect(new Set(ids).size).toBe(3);
     expect(icon.layers[2]?.clipTo).toBe(ids[0]);
+  });
+
+  it('keeps two layers masked to each other', () => {
+    // Masking is one level deep: a mask contributes only its shape, so a pair
+    // pointing at each other is a legal intersection, not a loop to break.
+    const icon = sanitizeIcon({
+      v: 2,
+      background: {},
+      layers: [
+        { id: 'a', content: { kind: 'symbol', symbol: 'gem' }, clipTo: 'b' },
+        { id: 'b', content: { kind: 'symbol', symbol: 'star' }, clipTo: 'a' },
+      ],
+    });
+    expect(icon.layers[0]?.clipTo).toBe('b');
+    expect(icon.layers[1]?.clipTo).toBe('a');
   });
 
   it('clamps effects and drops malformed ones', () => {

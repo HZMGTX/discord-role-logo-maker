@@ -238,7 +238,14 @@ export function refineIcon(current: IconState, prompt: string): Refinement | nul
     layer.effects.glow = { color: contentColorOf(layer.content) ?? '#ffffff', blur: 0.06, opacity: 0.75 };
     changes.push('added a glow');
   }
-  if (say(['outline', 'outlined', 'stroke', 'edge']) && mentionsContent) {
+  // "Outline" is ambiguous: it can mean the plate's border or a line round the
+  // mark. The border branch above already took it if the prompt read that way,
+  // so only outline the mark when the border was left alone.
+  if (
+    parsed.flags.border === undefined &&
+    mentionsContent &&
+    say(['outline', 'outlined', 'stroke', 'edge'])
+  ) {
     layer.effects.outline = { width: 0.014, color: '#000000' };
     changes.push('outlined it');
   }

@@ -100,7 +100,11 @@ export function FillControls({ fill, patch, label = 'Fill type' }: FillControlsP
                 onChange={(value) =>
                   patch((f) => {
                     const target = f.stops[index];
-                    if (target) target.offset = value;
+                    if (!target) return;
+                    target.offset = value;
+                    // Kept sorted here as well as on load, so the numbering a
+                    // row shows now is the numbering it keeps.
+                    f.stops.sort((a, b) => a.offset - b.offset);
                   })
                 }
               />

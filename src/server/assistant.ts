@@ -12,6 +12,7 @@ import {
   SYMBOL_IDS,
   isValidFontName,
   type Content,
+  type Fill,
   type FontId,
   type IconState,
 } from '../model/types';
@@ -206,6 +207,32 @@ function toContent(model: ModelLayer): Content {
 }
 
 /**
+ * The gradient detail the model's flat schema cannot carry. A tweak such as
+ * "make it darker" would otherwise flatten a hand-tuned gradient back to two
+ * colors, so the centre, the spread and any extra stops come from the icon the
+ * user is editing. The model can still replace the middle color, and saying so
+ * wins over what was there.
+ */
+function carriedFill(
+  model: ModelIcon,
+  previous: Fill | undefined,
+): Pick<Fill, 'stops' | 'cx' | 'cy' | 'radius'> {
+  const middle = optionalHex(model.color3);
+  const kept = previous?.stops ?? [];
+  const stops = middle
+    ? kept.length > 0
+      ? kept.map((stop, index) => (index === 0 ? { ...stop, color: middle } : { ...stop }))
+      : [{ offset: 0.5, color: middle }]
+    : [];
+  return {
+    stops,
+    cx: previous?.cx ?? 0,
+    cy: previous?.cy ?? 0,
+    radius: previous?.radius ?? DEFAULT_ICON.background.fill.radius,
+  };
+}
+
+/**
  * Converts the model's flat icon into a validated IconState. `previous` is the
  * icon the user is editing: an uploaded image cannot survive a round trip
  * through the model, so a layer the model returns as an image is refilled from
@@ -266,9 +293,7 @@ export function toIconState(model: ModelIcon, previous?: IconState): IconState {
         color1: hex(model.color1, DEFAULT_ICON.background.fill.color1),
         color2: hex(model.color2, hex(model.color1, DEFAULT_ICON.background.fill.color2)),
         angle: model.angle,
-        stops: optionalHex(model.color3)
-          ? [{ offset: 0.5, color: optionalHex(model.color3) as string }]
-          : [],
+        ...carriedFill(model, previous?.background.fill),
       }),
       border: { width: model.borderWidth, color: hex(model.borderColor, '#ffffff') },
       shadow: { ...DEFAULT_ICON.background.shadow, enabled: Boolean(model.shadow) },

@@ -43,10 +43,14 @@ function paintArtwork(
   box: Box,
   size: number,
   scale: number,
+  { silhouetteOnly = false }: { silhouetteOnly?: boolean } = {},
 ): ContentResult {
   ctx.save();
   positionLayer(ctx, layer, box);
-  if ('shadow' in layer.content && layer.content.shadow) {
+  // A canvas shadow is part of the drawing, not a pass behind it, so a layer
+  // used as a mask must be painted without one: its shadow would swell the
+  // mask well past the shape the user can see.
+  if (!silhouetteOnly && 'shadow' in layer.content && layer.content.shadow) {
     ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
     ctx.shadowBlur = 0.04 * size * scale;
     ctx.shadowOffsetY = 0.02 * size * scale;
@@ -148,9 +152,13 @@ function drawLayerBuffered(
   clipPath: Path2D | null,
   size: number,
   scale: number,
+  owner: Document,
 ): ContentResult | null {
-  return withScratch(size, scale, (art) => {
-    let result = paintArtwork(art.ctx, layer, box, size, art.scale);
+  return withScratch(owner, size, scale, (art) => {
+    // The drop shadow is cast when the finished buffer lands on the icon, not
+    // inside it: a tint fills the whole buffer through source-atop and would
+    // otherwise recolor the shadow along with the artwork.
+    let result = paintArtwork(art.ctx, layer, box, size, art.scale, { silhouetteOnly: true });
 
     const { tint } = layer.effects;
     if (tint) recolor(art, tint.color, tint.amount, size);
@@ -158,8 +166,10 @@ function drawLayerBuffered(
     if (mask) {
       // The mask contributes only its shape. Its own effects, blend mode and
       // clipping are ignored, so two layers can point at each other safely.
-      const masked = withScratch(size, scale, (stencil) => {
-        const r = paintArtwork(stencil.ctx, mask, box, size, stencil.scale);
+      const masked = withScratch(owner, size, scale, (stencil) => {
+        const r = paintArtwork(stencil.ctx, mask, box, size, stencil.scale, {
+          silhouetteOnly: true,
+        });
         art.ctx.save();
         art.ctx.globalCompositeOperation = 'destination-in';
         blit(art.ctx, stencil, size);
@@ -170,21 +180,29 @@ function drawLayerBuffered(
     }
 
     // Composing happens while the buffer is still checked out of the pool.
+    const destructive = isDestructive(layer.blend);
     const compose = (source: Scratch) => {
       ctx.save();
       // Erase and stencil take pixels away, so they are always confined to the
       // silhouette however the layer's own clip switch is set. Unconfined, a
       // stencil layer would wipe the whole canvas.
-      const destructive = isDestructive(layer.blend);
       if (clipPath && (layer.clip || destructive)) ctx.clip(clipPath);
       ctx.globalAlpha = layer.transform.opacity;
       ctx.globalCompositeOperation = blendToComposite(layer.blend);
+      // A shadow is part of what gets composited, so a layer that removes
+      // pixels would erase through its own shadow. Skip it for those.
+      if (!destructive && 'shadow' in layer.content && layer.content.shadow) {
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+        ctx.shadowBlur = 0.04 * size * scale;
+        ctx.shadowOffsetY = 0.02 * size * scale;
+      }
       blit(ctx, source, size);
       ctx.restore();
     };
 
-    if (hasEffects(layer.effects)) {
-      const done = withScratch(size, scale, (deco) => {
+    const { glow, outline } = layer.effects;
+    if (glow || outline) {
+      const done = withScratch(owner, size, scale, (deco) => {
         paintDecoration(deco, art, layer, size);
         compose(deco);
         return true;
@@ -212,6 +230,9 @@ export function renderIcon(
   ctx.save();
   ctx.clearRect(0, 0, size, size);
   const scale = contextScale(ctx);
+  // Scratch canvases are created in the same document as the target, so the
+  // renderer keeps working outside the main window.
+  const owner = ctx.canvas.ownerDocument;
   const box = shapeBox(size);
   const bg = state.background;
   const path = shapePath(bg.shape, box, {
@@ -259,7 +280,7 @@ export function renderIcon(
     // An empty mask layer would blank whatever it masks, which reads as a bug.
     const mask = target && target.content.kind !== 'none' ? target : null;
     const drawn = needsScratch(layer)
-      ? drawLayerBuffered(ctx, layer, mask, box, path, size, scale)
+      ? drawLayerBuffered(ctx, layer, mask, box, path, size, scale, owner)
       : null;
     // No scratch canvas available: draw straight on rather than skip the layer.
     result = merge(result, drawn ?? drawLayerDirect(ctx, layer, box, path, size, scale));

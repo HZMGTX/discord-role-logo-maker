@@ -36,15 +36,28 @@ export function contextScale(ctx: CanvasRenderingContext2D): number {
   return Number.isFinite(scale) && scale > 0 ? scale : 1;
 }
 
-function take(): Scratch | null {
+function take(owner: Document): Scratch | null {
   const existing = pool[live];
   if (existing) return existing;
-  const canvas = document.createElement('canvas');
+  const canvas = owner.createElement('canvas');
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
   const scratch: Scratch = { canvas, ctx, px: 0, scale: 1 };
   pool.push(scratch);
   return scratch;
+}
+
+/** Puts a reused context back into the state a fresh one would be in. */
+function reset(ctx: CanvasRenderingContext2D, px: number): void {
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0)';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.filter = 'none';
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, px, px);
 }
 
 /**
@@ -54,11 +67,12 @@ function take(): Scratch | null {
  * available, which lets the caller fall back to drawing directly.
  */
 export function withScratch<T>(
+  owner: Document,
   size: number,
   scale: number,
   draw: (scratch: Scratch) => T,
 ): T | null {
-  const scratch = take();
+  const scratch = take(owner);
   if (!scratch) return null;
   const px = Math.max(1, Math.min(MAX_PX, Math.ceil(size * scale)));
   live += 1;
@@ -69,8 +83,9 @@ export function withScratch<T>(
       canvas.width = px;
       canvas.height = px;
     } else {
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, px, px);
+      // A pooled canvas keeps whatever state the last user left, so reset it
+      // rather than trusting every save/restore in the renderer to balance.
+      reset(ctx, px);
     }
     scratch.px = px;
     scratch.scale = px / size;

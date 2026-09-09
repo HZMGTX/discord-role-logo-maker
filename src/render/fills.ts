@@ -9,7 +9,10 @@ import type { Box } from './shapes';
 function addStops(gradient: CanvasGradient, fill: Fill): void {
   gradient.addColorStop(0, fill.color1);
   for (const stop of fill.stops) {
-    const offset = Math.min(1, Math.max(0, stop.offset));
+    // addColorStop throws on anything outside 0..1 or non-finite, which would
+    // blank the whole icon. Presets and the reset button reach the renderer
+    // without passing through sanitize, so clamp here as well.
+    const offset = Number.isFinite(stop.offset) ? Math.min(1, Math.max(0, stop.offset)) : 0.5;
     gradient.addColorStop(offset, stop.color);
   }
   gradient.addColorStop(1, fill.color2);

@@ -418,6 +418,14 @@ export function LayersTab({
               Effects
               <span className="card__hint">work on any layer, pictures included</span>
             </h2>
+            {selected.clip &&
+              icon.background.shape !== 'none' &&
+              (selected.effects.glow !== null || selected.effects.outline !== null) && (
+                <p className="card__hint">
+                  This layer is kept inside the shape, so the glow and outline are trimmed at its
+                  edge. Turn that off in Layer options to let them spread.
+                </p>
+              )}
             <Toggle
               label="Glow"
               checked={selected.effects.glow !== null}
