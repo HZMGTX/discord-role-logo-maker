@@ -61,8 +61,8 @@ function colorAt(fill: Fill, offset: number): string {
 
 /**
  * Edits one fill: its type, its two end colors, any extra colors in between,
- * and where a radial or conic gradient is centered. Shared by the background
- * plate and by shape layers so both offer exactly the same options.
+ * and where the gradient is centered. Shared by the background plate and by
+ * shape layers so both offer exactly the same options.
  */
 export function FillControls({ fill, patch, label = 'Fill type' }: FillControlsProps) {
   const [startLabel, endLabel] = END_LABELS[fill.type];
@@ -179,32 +179,28 @@ export function FillControls({ fill, patch, label = 'Fill type' }: FillControlsP
               }
             />
           )}
-          {(
-            <>
-              <Slider
-                label="Center across"
-                value={fill.cx}
-                range={RANGES.fillCenter}
-                format={signedPercent}
-                onChange={(value) =>
-                  patch((f) => {
-                    f.cx = value;
-                  })
-                }
-              />
-              <Slider
-                label="Center down"
-                value={fill.cy}
-                range={RANGES.fillCenter}
-                format={signedPercent}
-                onChange={(value) =>
-                  patch((f) => {
-                    f.cy = value;
-                  })
-                }
-              />
-            </>
-          )}
+          <Slider
+            label="Center across"
+            value={fill.cx}
+            range={RANGES.fillCenter}
+            format={signedPercent}
+            onChange={(value) =>
+              patch((f) => {
+                f.cx = value;
+              })
+            }
+          />
+          <Slider
+            label="Center down"
+            value={fill.cy}
+            range={RANGES.fillCenter}
+            format={signedPercent}
+            onChange={(value) =>
+              patch((f) => {
+                f.cy = value;
+              })
+            }
+          />
           {fill.type === 'radial' && (
             <Slider
               label="Spread"
