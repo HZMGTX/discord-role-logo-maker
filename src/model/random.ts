@@ -1,5 +1,5 @@
 import { ICON_FRIENDLY_EMOJI } from '../emoji/catalog';
-import { DEFAULT_BACKGROUND, DEFAULT_TRANSFORM } from './defaults';
+import { DEFAULT_BACKGROUND, fillOf, makeLayer } from './defaults';
 import { FILL_TYPES, SHAPES, SYMBOL_IDS, type IconState } from './types';
 
 const COLOR_PAIRS: ReadonlyArray<readonly [string, string]> = [
@@ -44,22 +44,11 @@ export function randomizeIcon(): IconState {
       sides: 3 + Math.floor(Math.random() * 9),
       innerRatio: 0.45 + Math.random() * 0.3,
       rotation: 0,
-      fill: { type: pick(FILL_TYPES), color1, color2, angle: pick([45, 90, 135, 160, 180]) },
+      fill: fillOf({ type: pick(FILL_TYPES), color1, color2, angle: pick([45, 90, 135, 160, 180]) }),
       border: Math.random() < 0.5 ? { width: 0.04, color: '#ffffff' } : { width: 0, color: '#ffffff' },
       gloss: Math.random() < 0.3,
       shadow: { ...DEFAULT_BACKGROUND.shadow, enabled: Math.random() < 0.3 },
     },
-    layers: [
-      {
-        id: 'r0',
-        name: '',
-        hidden: false,
-        locked: false,
-        content,
-        transform: { ...DEFAULT_TRANSFORM },
-        blend: 'normal',
-        clip: true,
-      },
-    ],
+    layers: [makeLayer(content, { id: 'r0' })],
   };
 }

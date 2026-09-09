@@ -1,11 +1,19 @@
-import { DEFAULT_BACKGROUND, DEFAULT_ICON, DEFAULT_PREVIEW, DEFAULT_TRANSFORM } from './defaults';
+import {
+  DEFAULT_BACKGROUND,
+  DEFAULT_ICON,
+  DEFAULT_PREVIEW,
+  DEFAULT_SHAPE_FILL,
+  DEFAULT_TRANSFORM,
+} from './defaults';
 import {
   BLEND_MODES,
   FILL_TYPES,
   FONTS,
   FONT_WEIGHTS,
   IMAGE_FITS,
+  MAX_FILL_STOPS,
   MAX_LAYERS,
+  NO_EFFECTS,
   RANGES,
   SHAPES,
   SYMBOL_IDS,
@@ -15,10 +23,12 @@ import {
   type Border,
   type Content,
   type Fill,
+  type FillStop,
   type FontId,
   type FontWeight,
   type IconState,
   type Layer,
+  type LayerEffects,
   type PreviewSettings,
   type Range,
   type Transform,
@@ -52,6 +62,18 @@ function str(x: unknown, fallback: string, max: number): string {
   return typeof x === 'string' ? x.slice(0, max) : fallback;
 }
 
+function sanitizeStops(raw: unknown, base: FillStop[]): FillStop[] {
+  if (!Array.isArray(raw)) return base.map((s) => ({ ...s }));
+  return raw
+    .slice(0, MAX_FILL_STOPS)
+    .filter(isRecord)
+    .map((s) => ({
+      offset: num(s.offset, 0.5, RANGES.stopOffset),
+      color: color(s.color, '#ffffff'),
+    }))
+    .sort((a, b) => a.offset - b.offset);
+}
+
 function sanitizeFill(raw: unknown, base: Fill): Fill {
   const f = isRecord(raw) ? raw : {};
   return {
@@ -59,6 +81,12 @@ function sanitizeFill(raw: unknown, base: Fill): Fill {
     color1: color(f.color1, base.color1),
     color2: color(f.color2, base.color2),
     angle: num(f.angle, base.angle, RANGES.fillAngle),
+    // A fill written by an earlier build has no stops, centre or radius; it
+    // decodes to the same two-color gradient it always drew.
+    stops: sanitizeStops(f.stops, base.stops),
+    cx: num(f.cx, base.cx, RANGES.fillCenter),
+    cy: num(f.cy, base.cy, RANGES.fillCenter),
+    radius: num(f.radius, base.radius, RANGES.fillRadius),
   };
 }
 
@@ -131,12 +159,7 @@ export function sanitizeContent(raw: unknown): Content {
         innerRatio: num(raw.innerRatio, 0.62, RANGES.innerRatio),
         rotation: num(raw.rotation, 0, RANGES.shapeRotation),
         cornerRadius: num(raw.cornerRadius, 0.25, RANGES.cornerRadius),
-        fill: sanitizeFill(raw.fill, {
-          type: 'solid',
-          color1: '#ffffff',
-          color2: '#ffffff',
-          angle: 135,
-        }),
+        fill: sanitizeFill(raw.fill, DEFAULT_SHAPE_FILL),
         border: sanitizeBorder(raw.border, { width: 0, color: '#000000' }),
         shadow: bool(raw.shadow, false),
       };
@@ -177,6 +200,34 @@ export function sanitizeBackground(raw: unknown): Background {
   };
 }
 
+function sanitizeEffects(raw: unknown): LayerEffects {
+  const e = isRecord(raw) ? raw : {};
+  const glow = isRecord(e.glow) ? e.glow : null;
+  const tint = isRecord(e.tint) ? e.tint : null;
+  const outline = isRecord(e.outline) ? e.outline : null;
+  return {
+    glow: glow
+      ? {
+          color: color(glow.color, '#ffffff'),
+          blur: num(glow.blur, 0.05, RANGES.glowBlur),
+          opacity: num(glow.opacity, 0.7, RANGES.glowOpacity),
+        }
+      : null,
+    tint: tint
+      ? {
+          color: color(tint.color, '#ffffff'),
+          amount: num(tint.amount, 1, RANGES.tintAmount),
+        }
+      : null,
+    outline: outline
+      ? {
+          width: num(outline.width, 0.02, RANGES.outlineWidth),
+          color: color(outline.color, '#000000'),
+        }
+      : null,
+  };
+}
+
 function sanitizeLayer(raw: unknown, index: number, usedIds: Set<string>): Layer {
   const l = isRecord(raw) ? raw : {};
   let id = str(l.id, '', 40).trim() || `l${index}`;
@@ -191,7 +242,24 @@ function sanitizeLayer(raw: unknown, index: number, usedIds: Set<string>): Layer
     transform: sanitizeTransform(l.transform),
     blend: oneOf(l.blend, BLEND_MODES, 'normal') as BlendMode,
     clip: bool(l.clip, true),
+    clipTo: typeof l.clipTo === 'string' ? l.clipTo.slice(0, 40).trim() || null : null,
+    effects: sanitizeEffects(l.effects),
   };
+}
+
+/**
+ * Points every `clipTo` at a layer that actually exists and is not the layer
+ * itself. A reference that survived an id rewrite and now matches nothing is
+ * dropped rather than repointed, so a hand-edited link degrades to "no mask"
+ * instead of masking against the wrong layer.
+ */
+function resolveClipTargets(layers: Layer[]): Layer[] {
+  const ids = new Set(layers.map((l) => l.id));
+  return layers.map((layer) =>
+    layer.clipTo !== null && (layer.clipTo === layer.id || !ids.has(layer.clipTo))
+      ? { ...layer, clipTo: null }
+      : layer,
+  );
 }
 
 /**
@@ -229,6 +297,8 @@ function migrateV1(raw: Record<string, unknown>): IconState {
         transform: sanitizeTransform(raw.transform),
         blend: 'normal',
         clip,
+        clipTo: null,
+        effects: structuredClone(NO_EFFECTS),
       },
     ],
   };
@@ -242,7 +312,11 @@ export function sanitizeIcon(raw: unknown): IconState {
   const layers = raw.layers
     .slice(0, MAX_LAYERS)
     .map((layer, index) => sanitizeLayer(layer, index, usedIds));
-  return { v: 2, background: sanitizeBackground(raw.background), layers };
+  return {
+    v: 2,
+    background: sanitizeBackground(raw.background),
+    layers: resolveClipTargets(layers),
+  };
 }
 
 export function sanitizePreview(

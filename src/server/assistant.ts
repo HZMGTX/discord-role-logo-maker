@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
 import { firstEmoji } from '../emoji/twemoji';
-import { DEFAULT_ICON } from '../model/defaults';
+import { DEFAULT_ICON, fillOf } from '../model/defaults';
 import { sanitizeIcon } from '../model/serialize';
 import {
   FILL_TYPES,
@@ -175,12 +175,12 @@ function toContent(model: ModelLayer): Content {
         innerRatio: 0.62,
         rotation: 0,
         cornerRadius: 0.25,
-        fill: {
+        fill: fillOf({
           type: model.gradient ? 'linear' : 'solid',
           color1: color,
           color2: hex(model.color2, color),
           angle: 135,
-        },
+        }),
         border: { width: 0, color: '#000000' },
         shadow,
       };

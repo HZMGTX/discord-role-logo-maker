@@ -11,7 +11,7 @@ import {
   serializePersisted,
   stripImages,
 } from './serialize';
-import { MAX_LAYERS, type IconState } from './types';
+import { MAX_FILL_STOPS, MAX_LAYERS, type IconState } from './types';
 
 /** An icon exactly as the previous version of the app wrote it. */
 const V1_ICON = {
@@ -200,6 +200,54 @@ describe('sanitizeIcon', () => {
     for (const bad of ['a"; }', 'x'.repeat(60), '', '  ', 42, null]) {
       expect(sanitizeIcon(text(bad)).layers[0]?.content).toMatchObject({ customFont: null });
     }
+  });
+
+  it('reads a fill written before gradients had stops', () => {
+    const icon = sanitizeIcon({
+      v: 2,
+      background: { fill: { type: 'linear', color1: '#ff0000', color2: '#0000ff', angle: 90 } },
+      layers: [],
+    });
+    expect(icon.background.fill).toEqual({
+      type: 'linear',
+      color1: '#ff0000',
+      color2: '#0000ff',
+      angle: 90,
+      stops: [],
+      cx: 0,
+      cy: 0,
+      radius: 0.55,
+    });
+  });
+
+  it('sorts, clamps and caps gradient stops', () => {
+    const icon = sanitizeIcon({
+      v: 2,
+      background: {
+        fill: {
+          type: 'conic',
+          color1: '#000000',
+          color2: '#ffffff',
+          cx: -9,
+          radius: 99,
+          stops: [
+            { offset: 0.9, color: '#111111' },
+            { offset: -4, color: '#222222' },
+            { offset: 0.4, color: 'not a color' },
+            ...Array.from({ length: MAX_FILL_STOPS }, () => ({ offset: 0.5, color: '#333333' })),
+          ],
+        },
+      },
+      layers: [],
+    });
+    const { fill } = icon.background;
+    expect(fill.type).toBe('conic');
+    expect(fill.stops).toHaveLength(MAX_FILL_STOPS);
+    expect(fill.stops.map((s) => s.offset)).toEqual([...fill.stops.map((s) => s.offset)].sort((a, b) => a - b));
+    expect(fill.stops[0]).toEqual({ offset: 0, color: '#222222' });
+    expect(fill.stops.some((s) => s.color === '#ffffff')).toBe(true);
+    expect(fill.cx).toBe(-0.5);
+    expect(fill.radius).toBe(1.5);
   });
 
   it('returns the defaults for non-objects', () => {

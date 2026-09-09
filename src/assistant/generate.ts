@@ -1,4 +1,4 @@
-import { DEFAULT_BACKGROUND, DEFAULT_TRANSFORM } from '../model/defaults';
+import { DEFAULT_BACKGROUND, DEFAULT_TRANSFORM, fillOf, makeLayer } from '../model/defaults';
 import { sanitizeIcon } from '../model/serialize';
 import {
   ROLE_COLORS,
@@ -307,7 +307,7 @@ function buildIcon(
       ...structuredClone(DEFAULT_BACKGROUND),
       shape,
       cornerRadius: Math.round((0.2 + rng() * 0.14) * 100) / 100,
-      fill: { type: fill, color1, color2, angle: pick(rng, [135, 160, 45, 90, 180]) },
+      fill: fillOf({ type: fill, color1, color2, angle: pick(rng, [135, 160, 45, 90, 180]) }),
       border:
         wantBorder && !plain
           ? {
@@ -325,19 +325,13 @@ function buildIcon(
             },
     },
     layers: [
-      {
+      makeLayer(layerContent, {
         id: 'a0',
-        name: '',
-        hidden: false,
-        locked: false,
-        content: layerContent,
         transform: {
           ...DEFAULT_TRANSFORM,
           scale: plain ? 1.3 : content.kind === 'text' ? 1 : pick(rng, [0.95, 1, 1.05, 1.1]),
         },
-        blend: 'normal',
-        clip: true,
-      },
+      }),
     ],
   };
   return sanitizeIcon(icon);

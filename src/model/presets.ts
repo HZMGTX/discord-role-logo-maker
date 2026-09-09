@@ -1,5 +1,13 @@
-import { DEFAULT_BACKGROUND, DEFAULT_TRANSFORM } from './defaults';
-import type { Background, Content, IconState, Layer, Transform } from './types';
+import { DEFAULT_BACKGROUND, DEFAULT_TRANSFORM, fillOf } from './defaults';
+import { NO_EFFECTS } from './types';
+import type {
+  Background,
+  Content,
+  IconState,
+  Layer,
+  LayerEffects,
+  Transform,
+} from './types';
 
 export interface Preset {
   id: string;
@@ -12,7 +20,9 @@ type LayerSpec = {
   content: Content;
   transform?: Partial<Transform>;
   clip?: boolean;
+  clipTo?: string | null;
   blend?: Layer['blend'];
+  effects?: Partial<LayerEffects>;
 };
 
 function layer(spec: LayerSpec, index: number): Layer {
@@ -25,6 +35,8 @@ function layer(spec: LayerSpec, index: number): Layer {
     transform: { ...DEFAULT_TRANSFORM, ...spec.transform },
     blend: spec.blend ?? 'normal',
     clip: spec.clip ?? true,
+    clipTo: spec.clipTo ?? null,
+    effects: { ...NO_EFFECTS, ...spec.effects },
   };
 }
 
@@ -60,7 +72,7 @@ export const PRESETS: readonly Preset[] = [
     '#e74c3c',
     {
       shape: 'shield',
-      fill: { type: 'linear', color1: '#ff5f5f', color2: '#b3121b', angle: 160 },
+      fill: fillOf({ type: 'linear', color1: '#ff5f5f', color2: '#b3121b', angle: 160 }),
       border: { width: 0.04, color: white },
       gloss: true,
       shadow: { ...DEFAULT_BACKGROUND.shadow, enabled: true },
@@ -73,7 +85,7 @@ export const PRESETS: readonly Preset[] = [
     '#2ecc71',
     {
       shape: 'circle',
-      fill: { type: 'linear', color1: '#2ecc71', color2: '#1f8b4c', angle: 135 },
+      fill: fillOf({ type: 'linear', color1: '#2ecc71', color2: '#1f8b4c', angle: 135 }),
       border: { width: 0.04, color: white },
     },
     [{ content: { kind: 'symbol', symbol: 'shield', color: white, shadow: false } }],
@@ -85,7 +97,7 @@ export const PRESETS: readonly Preset[] = [
     {
       shape: 'roundedSquare',
       cornerRadius: 0.3,
-      fill: { type: 'linear', color1: '#f1c40f', color2: '#e67e22', angle: 160 },
+      fill: fillOf({ type: 'linear', color1: '#f1c40f', color2: '#e67e22', angle: 160 }),
       gloss: true,
     },
     [
@@ -108,7 +120,7 @@ export const PRESETS: readonly Preset[] = [
     'booster',
     'Server Booster',
     '#f47fff',
-    { shape: 'circle', fill: { type: 'radial', color1: '#ff73fa', color2: '#b845c1', angle: 0 } },
+    { shape: 'circle', fill: fillOf({ type: 'radial', color1: '#ff73fa', color2: '#b845c1', angle: 0 }) },
     [{ content: { kind: 'symbol', symbol: 'gem', color: white, shadow: true } }],
   ),
   preset(
@@ -118,7 +130,7 @@ export const PRESETS: readonly Preset[] = [
     {
       shape: 'roundedSquare',
       cornerRadius: 0.25,
-      fill: { type: 'linear', color1: '#3498db', color2: '#206694', angle: 135 },
+      fill: fillOf({ type: 'linear', color1: '#3498db', color2: '#206694', angle: 135 }),
     },
     [{ content: { kind: 'emoji', emoji: '\u{1F916}', shadow: false } }],
   ),
@@ -126,14 +138,14 @@ export const PRESETS: readonly Preset[] = [
     'verified',
     'Verified',
     '#3498db',
-    { shape: 'badge', fill: { type: 'solid', color1: '#3498db', color2: '#206694', angle: 0 } },
+    { shape: 'badge', fill: fillOf({ type: 'solid', color1: '#3498db', color2: '#206694', angle: 0 }) },
     [{ content: { kind: 'symbol', symbol: 'check', color: white, shadow: false } }],
   ),
   preset(
     'artist',
     'Artist',
     '#9b59b6',
-    { shape: 'circle', fill: { type: 'linear', color1: '#9b59b6', color2: '#e91e63', angle: 45 } },
+    { shape: 'circle', fill: fillOf({ type: 'linear', color1: '#9b59b6', color2: '#e91e63', angle: 45 }) },
     [{ content: { kind: 'emoji', emoji: '\u{1F3A8}', shadow: false } }],
   ),
   preset(
@@ -142,7 +154,7 @@ export const PRESETS: readonly Preset[] = [
     '#1abc9c',
     {
       shape: 'hexagon',
-      fill: { type: 'linear', color1: '#1abc9c', color2: '#206694', angle: 135 },
+      fill: fillOf({ type: 'linear', color1: '#1abc9c', color2: '#206694', angle: 135 }),
       border: { width: 0.03, color: white },
     },
     [{ content: { kind: 'emoji', emoji: '\u{1F3AE}', shadow: false } }],
@@ -154,7 +166,7 @@ export const PRESETS: readonly Preset[] = [
     {
       shape: 'roundedSquare',
       cornerRadius: 0.2,
-      fill: { type: 'solid', color1: '#1e1f22', color2: '#3f4147', angle: 0 },
+      fill: fillOf({ type: 'solid', color1: '#1e1f22', color2: '#3f4147', angle: 0 }),
       border: { width: 0.04, color: '#2ecc71' },
     },
     [{ content: { kind: 'symbol', symbol: 'code', color: '#2ecc71', shadow: false } }],
@@ -163,21 +175,21 @@ export const PRESETS: readonly Preset[] = [
     'streamer',
     'Streamer',
     '#e91e63',
-    { shape: 'circle', fill: { type: 'radial', color1: '#e91e63', color2: '#71368a', angle: 0 } },
+    { shape: 'circle', fill: fillOf({ type: 'radial', color1: '#e91e63', color2: '#71368a', angle: 0 }) },
     [{ content: { kind: 'symbol', symbol: 'bolt', color: white, shadow: true } }],
   ),
   preset(
     'dj',
     'DJ',
     '#11806a',
-    { shape: 'circle', fill: { type: 'linear', color1: '#11806a', color2: '#1abc9c', angle: 90 } },
+    { shape: 'circle', fill: fillOf({ type: 'linear', color1: '#11806a', color2: '#1abc9c', angle: 90 }) },
     [{ content: { kind: 'symbol', symbol: 'note', color: white, shadow: false } }],
   ),
   preset(
     'nightowl',
     'Night Owl',
     '#206694',
-    { shape: 'circle', fill: { type: 'linear', color1: '#206694', color2: '#0f2a44', angle: 180 } },
+    { shape: 'circle', fill: fillOf({ type: 'linear', color1: '#206694', color2: '#0f2a44', angle: 180 }) },
     [{ content: { kind: 'symbol', symbol: 'moon', color: '#f1c40f', shadow: false } }],
   ),
 
@@ -188,7 +200,7 @@ export const PRESETS: readonly Preset[] = [
     '#f1c40f',
     {
       shape: 'circle',
-      fill: { type: 'linear', color1: '#f1c40f', color2: '#c27c0e', angle: 160 },
+      fill: fillOf({ type: 'linear', color1: '#f1c40f', color2: '#c27c0e', angle: 160 }),
       border: { width: 0.03, color: '#fff4d6' },
       gloss: true,
     },
@@ -201,7 +213,7 @@ export const PRESETS: readonly Preset[] = [
           innerRatio: 0.72,
           rotation: 0,
           cornerRadius: 0.25,
-          fill: { type: 'solid', color1: '#fff4d6', color2: '#fff4d6', angle: 0 },
+          fill: fillOf({ type: 'solid', color1: '#fff4d6', color2: '#fff4d6', angle: 0 }),
           border: { width: 0, color: '#000000' },
           shadow: false,
         },
@@ -216,7 +228,7 @@ export const PRESETS: readonly Preset[] = [
     '#e74c3c',
     {
       shape: 'shield',
-      fill: { type: 'linear', color1: '#e74c3c', color2: '#992d22', angle: 160 },
+      fill: fillOf({ type: 'linear', color1: '#e74c3c', color2: '#992d22', angle: 160 }),
       border: { width: 0.035, color: white },
     },
     [
@@ -246,7 +258,7 @@ export const PRESETS: readonly Preset[] = [
     '#71368a',
     {
       shape: 'circle',
-      fill: { type: 'radial', color1: '#2b1055', color2: '#0f0524', angle: 0 },
+      fill: fillOf({ type: 'radial', color1: '#2b1055', color2: '#0f0524', angle: 0 }),
     },
     [
       {
@@ -257,7 +269,7 @@ export const PRESETS: readonly Preset[] = [
           innerRatio: 0.62,
           rotation: 0,
           cornerRadius: 0.25,
-          fill: { type: 'linear', color1: '#ffd166', color2: '#ff7a00', angle: 135 },
+          fill: fillOf({ type: 'linear', color1: '#ffd166', color2: '#ff7a00', angle: 135 }),
           border: { width: 0, color: '#000000' },
           shadow: false,
         },
@@ -271,7 +283,7 @@ export const PRESETS: readonly Preset[] = [
           innerRatio: 0.62,
           rotation: 0,
           cornerRadius: 0.25,
-          fill: { type: 'solid', color1: '#0f0524', color2: '#0f0524', angle: 0 },
+          fill: fillOf({ type: 'solid', color1: '#0f0524', color2: '#0f0524', angle: 0 }),
           border: { width: 0, color: '#000000' },
           shadow: false,
         },

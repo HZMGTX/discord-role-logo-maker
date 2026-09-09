@@ -31,15 +31,37 @@ export const SHAPE_LABELS: Record<ShapeKind, string> = {
   none: 'None',
 };
 
-export const FILL_TYPES = ['solid', 'linear', 'radial'] as const;
+export const FILL_TYPES = ['solid', 'linear', 'radial', 'conic'] as const;
 export type FillType = (typeof FILL_TYPES)[number];
+
+/** One extra color between a fill's two end colors. */
+export interface FillStop {
+  /** Position along the gradient, 0..1. */
+  offset: number;
+  color: string;
+}
+
+/** As many stops as a gradient may carry between its two end colors. */
+export const MAX_FILL_STOPS = 6;
 
 export interface Fill {
   type: FillType;
+  /** The color at offset 0. */
   color1: string;
+  /** The color at offset 1. */
   color2: string;
   /** Degrees, CSS convention: 0 = bottom to top, 90 = left to right. */
   angle: number;
+  /**
+   * Extra colors between `color1` and `color2`. Empty means a plain two-color
+   * gradient, which is what every fill written by an earlier build decodes to.
+   */
+  stops: FillStop[];
+  /** Center of a radial or conic gradient, as a fraction of the shape box. */
+  cx: number;
+  cy: number;
+  /** Radius of a radial gradient, as a fraction of the shape box. */
+  radius: number;
 }
 
 export interface Border {
@@ -174,6 +196,8 @@ export const CONTENT_KIND_LABELS: Record<ContentKind, string> = {
 /** Canvas composite operations, exposed as per-layer blend modes. */
 export const BLEND_MODES = [
   'normal',
+  'erase',
+  'stencil',
   'multiply',
   'screen',
   'overlay',
@@ -192,8 +216,49 @@ export const BLEND_MODES = [
 ] as const;
 export type BlendMode = (typeof BLEND_MODES)[number];
 
+const COMPOSITE_ALIASES: Partial<Record<BlendMode, GlobalCompositeOperation>> = {
+  normal: 'source-over',
+  erase: 'destination-out',
+  stencil: 'destination-in',
+};
+
 export function blendToComposite(mode: BlendMode): GlobalCompositeOperation {
-  return mode === 'normal' ? 'source-over' : (mode as GlobalCompositeOperation);
+  return COMPOSITE_ALIASES[mode] ?? (mode as GlobalCompositeOperation);
+}
+
+/**
+ * Erase and stencil remove pixels that are already on the canvas, so the
+ * renderer always confines them to the icon silhouette. Anywhere else they
+ * would eat the whole canvas.
+ */
+export function isDestructive(mode: BlendMode): boolean {
+  return mode === 'erase' || mode === 'stencil';
+}
+
+export const BLEND_LABELS: Partial<Record<BlendMode, string>> = {
+  normal: 'Normal',
+  erase: 'Erase',
+  stencil: 'Stencil',
+  'color-dodge': 'Color dodge',
+  'color-burn': 'Color burn',
+  'hard-light': 'Hard light',
+  'soft-light': 'Soft light',
+};
+
+/** Effects that work on any layer, whatever its content is. */
+export interface LayerEffects {
+  /** A colored halo spreading outwards from the layer. */
+  glow: { color: string; blur: number; opacity: number } | null;
+  /** Washes a color over the layer, keeping its silhouette. */
+  tint: { color: string; amount: number } | null;
+  /** A line traced around the layer's silhouette. */
+  outline: { width: number; color: string } | null;
+}
+
+export const NO_EFFECTS: LayerEffects = { glow: null, tint: null, outline: null };
+
+export function hasEffects(effects: LayerEffects): boolean {
+  return effects.glow !== null || effects.tint !== null || effects.outline !== null;
 }
 
 /** One item in the stack. An icon can hold as many as the user wants. */
@@ -208,6 +273,13 @@ export interface Layer {
   blend: BlendMode;
   /** Clip this layer to the background silhouette. */
   clip: boolean;
+  /**
+   * Also clip this layer to another layer's silhouette, by id. The mask layer
+   * contributes only its shape: its own effects, blend and clipping are
+   * ignored, so two layers may reference each other without looping.
+   */
+  clipTo: string | null;
+  effects: LayerEffects;
 }
 
 /** The plate every role icon sits on. It also defines the clipping silhouette. */
@@ -290,6 +362,13 @@ export const RANGES = {
   layerStrokeWidth: { min: 0, max: 0.3, step: 0.01 },
   innerRatio: { min: 0.2, max: 0.95, step: 0.01 },
   shapeRotation: { min: -180, max: 180, step: 1 },
+  stopOffset: { min: 0, max: 1, step: 0.01 },
+  fillCenter: { min: -0.5, max: 0.5, step: 0.01 },
+  fillRadius: { min: 0.1, max: 1.5, step: 0.01 },
+  glowBlur: { min: 0.005, max: 0.2, step: 0.005 },
+  glowOpacity: { min: 0.05, max: 1, step: 0.05 },
+  outlineWidth: { min: 0.002, max: 0.12, step: 0.002 },
+  tintAmount: { min: 0.05, max: 1, step: 0.05 },
 } as const satisfies Record<string, Range>;
 
 export const EXPORT_SIZES = [64, 128, 256, 512] as const;

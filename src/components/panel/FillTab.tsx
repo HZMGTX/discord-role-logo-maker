@@ -9,12 +9,14 @@ const FILL_OPTIONS: ReadonlyArray<{ value: FillType; label: string }> = [
   { value: 'solid', label: 'Solid' },
   { value: 'linear', label: 'Linear' },
   { value: 'radial', label: 'Radial' },
+  { value: 'conic', label: 'Conic' },
 ];
 
 const LABELS: Record<FillType, [string, string]> = {
   solid: ['Color', ''],
   linear: ['Start color', 'End color'],
   radial: ['Center color', 'Edge color'],
+  conic: ['Start color', 'End color'],
 };
 
 export function FillTab({ icon, updateIcon }: TabProps) {
