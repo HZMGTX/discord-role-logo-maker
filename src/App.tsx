@@ -34,6 +34,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<TabId>('ai');
   const [assistantFocusToken, setAssistantFocusToken] = useState(0);
+  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
   const { toast, notify } = useToast();
   const iconUrl = useIconDataUrl(icon, 64);
 
@@ -42,6 +43,11 @@ export function App() {
   useEffect(() => {
     if (initial.source === 'share') notify('Loaded the design from your share link');
   }, [initial.source, notify]);
+
+  const replaceIcon = useCallback((next: IconState) => {
+    clearHash();
+    setIcon(next);
+  }, []);
 
   const updateIcon = useCallback((mutate: (draft: IconState) => void) => {
     clearHash();
@@ -103,7 +109,7 @@ export function App() {
     try {
       await navigator.clipboard.writeText(window.location.href);
       notify(
-        icon.content.kind === 'image' && icon.content.src
+        icon.layers.some((l) => l.content.kind === 'image' && l.content.src)
           ? 'Link copied (uploaded images are not included)'
           : 'Share link copied',
       );
@@ -134,6 +140,9 @@ export function App() {
           onTabChange={setTab}
           icon={icon}
           updateIcon={updateIcon}
+          setIcon={replaceIcon}
+          selectedLayerId={selectedLayerId}
+          onSelectLayer={setSelectedLayerId}
           assistantFocusToken={assistantFocusToken}
           onApplyIdea={applyIdea}
           onApplyIcon={applyIcon}

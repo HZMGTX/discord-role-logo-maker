@@ -5,7 +5,7 @@ import { Toggle } from '../controls/Toggle';
 import type { TabProps } from './types';
 
 export function EffectsTab({ icon, updateIcon }: TabProps) {
-  if (icon.shape === 'none') {
+  if (icon.background.shape === 'none') {
     return (
       <p className="note">
         Effects apply to the background shape. Pick a shape in the Shape tab to use a border,
@@ -19,22 +19,22 @@ export function EffectsTab({ icon, updateIcon }: TabProps) {
         <h2 className="section__title">Border</h2>
         <Slider
           label="Width"
-          value={icon.border.width}
+          value={icon.background.border.width}
           range={RANGES.borderWidth}
           format={percent}
           onChange={(value) =>
             updateIcon((draft) => {
-              draft.border.width = value;
+              draft.background.border.width = value;
             })
           }
         />
-        {icon.border.width > 0 && (
+        {icon.background.border.width > 0 && (
           <ColorField
             label="Border color"
-            value={icon.border.color}
+            value={icon.background.border.color}
             onChange={(hex) =>
               updateIcon((draft) => {
-                draft.border.color = hex;
+                draft.background.border.color = hex;
               })
             }
           />
@@ -44,65 +44,65 @@ export function EffectsTab({ icon, updateIcon }: TabProps) {
         <h2 className="section__title">Shadow</h2>
         <Toggle
           label="Drop shadow"
-          checked={icon.shadow.enabled}
+          checked={icon.background.shadow.enabled}
           onChange={(checked) =>
             updateIcon((draft) => {
-              draft.shadow.enabled = checked;
+              draft.background.shadow.enabled = checked;
             })
           }
         />
-        {icon.shadow.enabled && (
+        {icon.background.shadow.enabled && (
           <>
             <Slider
               label="Blur"
-              value={icon.shadow.blur}
+              value={icon.background.shadow.blur}
               range={RANGES.shadowBlur}
               format={percent}
               onChange={(value) =>
                 updateIcon((draft) => {
-                  draft.shadow.blur = value;
+                  draft.background.shadow.blur = value;
                 })
               }
             />
             <Slider
               label="Opacity"
-              value={icon.shadow.opacity}
+              value={icon.background.shadow.opacity}
               range={RANGES.shadowOpacity}
               format={percent}
               onChange={(value) =>
                 updateIcon((draft) => {
-                  draft.shadow.opacity = value;
+                  draft.background.shadow.opacity = value;
                 })
               }
             />
             <Slider
               label="Offset X"
-              value={icon.shadow.dx}
+              value={icon.background.shadow.dx}
               range={RANGES.shadowOffset}
               format={signedPercent}
               onChange={(value) =>
                 updateIcon((draft) => {
-                  draft.shadow.dx = value;
+                  draft.background.shadow.dx = value;
                 })
               }
             />
             <Slider
               label="Offset Y"
-              value={icon.shadow.dy}
+              value={icon.background.shadow.dy}
               range={RANGES.shadowOffset}
               format={signedPercent}
               onChange={(value) =>
                 updateIcon((draft) => {
-                  draft.shadow.dy = value;
+                  draft.background.shadow.dy = value;
                 })
               }
             />
             <ColorField
               label="Shadow color"
-              value={icon.shadow.color}
+              value={icon.background.shadow.color}
               onChange={(hex) =>
                 updateIcon((draft) => {
-                  draft.shadow.color = hex;
+                  draft.background.shadow.color = hex;
                 })
               }
             />
@@ -113,10 +113,10 @@ export function EffectsTab({ icon, updateIcon }: TabProps) {
         <h2 className="section__title">Finish</h2>
         <Toggle
           label="Glossy highlight"
-          checked={icon.gloss}
+          checked={icon.background.gloss}
           onChange={(checked) =>
             updateIcon((draft) => {
-              draft.gloss = checked;
+              draft.background.gloss = checked;
             })
           }
         />

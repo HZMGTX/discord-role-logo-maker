@@ -46,15 +46,72 @@ describe('checkRateLimit', () => {
   });
 });
 
+/** A layer as the model would describe it, with every field filled in. */
+function modelLayer(overrides: Record<string, unknown> = {}) {
+  return {
+    kind: 'emoji' as const,
+    emoji: '⭐',
+    text: '',
+    font: 'inter' as const,
+    customFont: '',
+    symbol: 'star' as const,
+    color: '#ffffff',
+    color2: '#ffffff',
+    gradient: false,
+    shape: 'circle' as const,
+    sides: 6,
+    scale: 1,
+    x: 0,
+    y: 0,
+    rotation: 0,
+    opacity: 1,
+    shadow: false,
+    clip: true,
+    ...overrides,
+  };
+}
+
 describe('model icon conversion', () => {
   it('round-trips the default icon', () => {
-    expect(toIconState(toModelIcon(DEFAULT_ICON))).toEqual(DEFAULT_ICON);
+    expect(toIconState(toModelIcon(DEFAULT_ICON))).toEqual({
+      ...DEFAULT_ICON,
+      layers: DEFAULT_ICON.layers.map((l, i) => ({ ...l, id: `m${i}` })),
+    });
+  });
+
+  it('round-trips a stacked design', () => {
+    const stacked = sanitizeIcon({
+      v: 2,
+      background: { shape: 'hexagon', fill: { type: 'linear', color1: '#112233', color2: '#445566', angle: 90 } },
+      layers: [
+        {
+          id: 'a',
+          content: {
+            kind: 'shape',
+            shape: 'burst',
+            sides: 10,
+            fill: { type: 'linear', color1: '#ff0000', color2: '#00ff00', angle: 135 },
+          },
+          transform: { scale: 1.2, opacity: 0.4 },
+        },
+        { id: 'b', content: { kind: 'symbol', symbol: 'trophy', color: '#f1c40f' } },
+      ],
+    });
+    const back = toIconState(toModelIcon(stacked));
+    expect(back.layers).toHaveLength(2);
+    expect(back.background.shape).toBe('hexagon');
+    expect(back.layers[0]?.content).toMatchObject({ kind: 'shape', shape: 'burst', sides: 10 });
+    expect(back.layers[0]?.transform).toMatchObject({ scale: 1.2, opacity: 0.4 });
+    expect(back.layers[1]?.content).toMatchObject({ kind: 'symbol', symbol: 'trophy', color: '#f1c40f' });
   });
 
   it('cleans up sloppy model output', () => {
     const icon = toIconState({
       shape: 'badge',
       cornerRadius: 9,
+      sides: 99,
+      innerRatio: -3,
+      shapeRotation: 900,
       fillType: 'linear',
       color1: 'red',
       color2: '#ABCDEF',
@@ -63,54 +120,61 @@ describe('model icon conversion', () => {
       borderColor: 'nope',
       shadow: true,
       gloss: false,
-      contentKind: 'emoji',
-      emoji: 'a frog 🐸 please',
-      text: '',
-      font: 'inter',
-      customFont: '',
-      symbol: 'star',
-      contentColor: '#ffffff',
-      contentShadow: false,
-      scale: 40,
+      layers: [modelLayer({ emoji: 'a frog 🐸 please', scale: 40 })],
     });
-    expect(icon.shape).toBe('badge');
-    expect(icon.cornerRadius).toBe(0.5);
-    expect(icon.fill.color1).toBe(DEFAULT_ICON.fill.color1);
-    expect(icon.fill.color2).toBe('#abcdef');
-    expect(icon.fill.angle).toBe(360);
-    expect(icon.border).toEqual({ width: 0.12, color: '#ffffff' });
-    expect(icon.content).toEqual({ kind: 'emoji', emoji: '🐸', shadow: false });
-    expect(icon.transform.scale).toBe(1.5);
+    expect(icon.background.shape).toBe('badge');
+    expect(icon.background.cornerRadius).toBe(0.5);
+    expect(icon.background.sides).toBe(24);
+    expect(icon.background.innerRatio).toBe(0.2);
+    expect(icon.background.rotation).toBe(180);
+    expect(icon.background.fill.color1).toBe(DEFAULT_ICON.background.fill.color1);
+    expect(icon.background.fill.color2).toBe('#abcdef');
+    expect(icon.background.fill.angle).toBe(360);
+    expect(icon.background.border).toEqual({ width: 0.12, color: '#ffffff' });
+    expect(icon.layers[0]?.content).toEqual({ kind: 'emoji', emoji: '🐸', shadow: false });
+    expect(icon.layers[0]?.transform.scale).toBe(1.5);
     expect(sanitizeIcon(JSON.parse(JSON.stringify(icon)))).toEqual(icon);
   });
 
-  it('accepts a named Google Font and rejects an unsafe one', () => {
-    const good = toIconState({
+  it('drops empty layers and keeps the plate', () => {
+    const icon = toIconState({
       ...toModelIcon(DEFAULT_ICON),
-      contentKind: 'text',
-      text: 'GG',
-      customFont: 'Rampart One',
+      layers: [modelLayer({ kind: 'none' }), modelLayer({ kind: 'symbol', symbol: 'gem' })],
     });
-    expect(good.content).toMatchObject({ kind: 'text', customFont: 'Rampart One' });
-    const bad = toIconState({
-      ...toModelIcon(DEFAULT_ICON),
-      contentKind: 'text',
-      text: 'GG',
-      customFont: 'Evil"; background: url(x)',
-    });
-    expect(bad.content).toMatchObject({ kind: 'text', customFont: null });
+    expect(icon.layers).toHaveLength(1);
+    expect(icon.layers[0]?.content).toMatchObject({ kind: 'symbol', symbol: 'gem' });
   });
 
-  it('maps text and symbol content', () => {
+  it('accepts a named Google Font and rejects an unsafe one', () => {
+    const withFont = (customFont: string) =>
+      toIconState({
+        ...toModelIcon(DEFAULT_ICON),
+        layers: [modelLayer({ kind: 'text', text: 'GG', customFont })],
+      }).layers[0]?.content;
+    expect(withFont('Rampart One')).toMatchObject({ kind: 'text', customFont: 'Rampart One' });
+    expect(withFont('Evil"; background: url(x)')).toMatchObject({ kind: 'text', customFont: null });
+  });
+
+  it('maps text and shape content', () => {
     const text = toIconState({
       ...toModelIcon(DEFAULT_ICON),
-      contentKind: 'text',
-      text: 'moderators',
-      font: 'bangers',
-      contentColor: '#111111',
+      layers: [modelLayer({ kind: 'text', text: 'moderators', font: 'bangers', color: '#111111' })],
     });
-    expect(text.content).toMatchObject({ kind: 'text', text: 'moderato', font: 'bangers', color: '#111111' });
-    const symbol = toIconState({ ...toModelIcon(DEFAULT_ICON), contentKind: 'symbol', symbol: 'gear' });
-    expect(symbol.content).toMatchObject({ kind: 'symbol', symbol: 'gear' });
+    expect(text.layers[0]?.content).toMatchObject({
+      kind: 'text',
+      text: 'moderato',
+      font: 'bangers',
+      color: '#111111',
+    });
+    const shape = toIconState({
+      ...toModelIcon(DEFAULT_ICON),
+      layers: [modelLayer({ kind: 'shape', shape: 'polygon', sides: 5, gradient: true, color: '#ff0000', color2: '#0000ff' })],
+    });
+    expect(shape.layers[0]?.content).toMatchObject({
+      kind: 'shape',
+      shape: 'polygon',
+      sides: 5,
+      fill: { type: 'linear', color1: '#ff0000', color2: '#0000ff' },
+    });
   });
 });

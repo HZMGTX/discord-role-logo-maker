@@ -157,9 +157,34 @@ try {
   await settle(page);
   const tweaked = await previewData(page);
   assert(tweaked !== secondIdea, 'a tweak instruction changes the preview');
-  const shapeAfterTweak = await page.evaluate(() => JSON.parse(localStorage.getItem('role-icon-maker:v1')).icon.shape);
+  const shapeAfterTweak = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('role-icon-maker:v1')).icon.background.shape,
+  );
   assert(shapeAfterTweak === 'hexagon', `tweak changed the shape to hexagon (${shapeAfterTweak})`);
   console.log(`✓ assistant: ${ideaCount} ideas, load, tweak; screenshot saved`);
+
+  // 1c. Layers: stack a second mark on the same icon, reorder it, hide it.
+  const layerCount = () =>
+    page.evaluate(() => JSON.parse(localStorage.getItem('role-icon-maker:v1')).icon.layers.length);
+  await page.getByRole('tab', { name: 'Layers' }).click();
+  const before = await layerCount();
+  await page.getByTestId('add-layer-text').click();
+  await settle(page);
+  const after = await layerCount();
+  assert(after === before + 1, `adding a layer grew the stack (${before} -> ${after})`);
+  const stacked = await previewData(page);
+  assert(stacked !== tweaked, 'the added layer changed the preview');
+  const stackedShot = path.join(OUT, 'screenshot-layers.png');
+  await page.screenshot({ path: stackedShot, fullPage: true });
+  await page.getByRole('button', { name: /^Hide / }).first().click();
+  await settle(page);
+  assert((await previewData(page)) !== stacked, 'hiding a layer changed the preview');
+  await page.getByRole('button', { name: /^Show / }).first().click();
+  await settle(page);
+  await page.getByTestId('delete-layer').click();
+  await settle(page);
+  assert((await layerCount()) === before, 'deleting a layer restored the stack');
+  console.log(`✓ layers: add, hide, delete (${before} -> ${after} -> ${before})`);
 
   // 2. A control change repaints the preview.
   await page.getByRole('tab', { name: 'Effects' }).click();

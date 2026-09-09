@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { DEFAULT_ICON } from '../../model/defaults';
 import { RANGES, SHAPES, SHAPE_LABELS, type IconState } from '../../model/types';
 import { IconThumb } from '../controls/IconThumb';
 import { Slider, degrees, percent } from '../controls/Slider';
@@ -14,10 +13,12 @@ export function ShapeTab({ icon, updateIcon }: TabProps) {
         kind,
         state: {
           ...icon,
-          shape: kind,
-          content: { kind: 'none' as const },
-          shadow: { ...icon.shadow, enabled: false },
-          transform: DEFAULT_ICON.transform,
+          background: {
+            ...icon.background,
+            shape: kind,
+            shadow: { ...icon.background.shadow, enabled: false },
+          },
+          layers: [],
         } satisfies IconState,
       })),
     [icon],
@@ -33,10 +34,10 @@ export function ShapeTab({ icon, updateIcon }: TabProps) {
               key={kind}
               type="button"
               className="option"
-              aria-pressed={icon.shape === kind}
+              aria-pressed={icon.background.shape === kind}
               onClick={() =>
                 updateIcon((draft) => {
-                  draft.shape = kind;
+                  draft.background.shape = kind;
                 })
               }
             >
@@ -52,62 +53,62 @@ export function ShapeTab({ icon, updateIcon }: TabProps) {
           ))}
         </div>
       </div>
-      {icon.shape !== 'none' && (
+      {icon.background.shape !== 'none' && (
         <div className="section">
           <h2 className="section__title">Fine tune</h2>
-          {icon.shape === 'roundedSquare' && (
+          {icon.background.shape === 'roundedSquare' && (
             <Slider
               label="Corner radius"
-              value={icon.cornerRadius}
+              value={icon.background.cornerRadius}
               range={RANGES.cornerRadius}
               format={percent}
               onChange={(value) =>
                 updateIcon((draft) => {
-                  draft.cornerRadius = value;
+                  draft.background.cornerRadius = value;
                 })
               }
             />
           )}
-          {(icon.shape === 'polygon' || icon.shape === 'burst') && (
+          {(icon.background.shape === 'polygon' || icon.background.shape === 'burst') && (
             <Slider
-              label={icon.shape === 'polygon' ? 'Sides' : 'Points'}
-              value={icon.sides}
-              range={icon.shape === 'polygon' ? POLYGON_SIDES : RANGES.sides}
+              label={icon.background.shape === 'polygon' ? 'Sides' : 'Points'}
+              value={icon.background.sides}
+              range={icon.background.shape === 'polygon' ? POLYGON_SIDES : RANGES.sides}
               format={(value) => String(Math.round(value))}
               onChange={(value) =>
                 updateIcon((draft) => {
-                  draft.sides = Math.round(value);
+                  draft.background.sides = Math.round(value);
                 })
               }
             />
           )}
-          {icon.shape === 'burst' && (
+          {icon.background.shape === 'burst' && (
             <Slider
               label="Spike depth"
-              value={icon.innerRatio}
+              value={icon.background.innerRatio}
               range={RANGES.innerRatio}
               format={percent}
               onChange={(value) =>
                 updateIcon((draft) => {
-                  draft.innerRatio = value;
+                  draft.background.innerRatio = value;
                 })
               }
             />
           )}
           <Slider
             label="Rotate shape"
-            value={icon.shapeRotation}
+            value={icon.background.rotation}
             range={RANGES.shapeRotation}
             format={degrees}
             onChange={(value) =>
               updateIcon((draft) => {
-                draft.shapeRotation = value;
+                draft.background.rotation = value;
               })
             }
           />
         </div>
       )}
-      {icon.shape === 'none' && (
+      {icon.background.shape === 'none' && (
         <p className="note">
           No background: only the content is drawn, on a transparent PNG. Border, shadow and
           gloss are skipped.

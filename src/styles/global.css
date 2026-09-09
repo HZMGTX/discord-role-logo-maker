@@ -1230,3 +1230,112 @@ textarea:focus-visible,
 .btn:disabled {
   cursor: progress;
 }
+
+/* Layer stack ---------------------------------------------------------------- */
+
+.layers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.layer {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  transition:
+    border-color var(--ease),
+    background var(--ease);
+}
+
+.layer:hover {
+  border-color: var(--line-strong);
+}
+
+.layer--active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.layer__pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  min-height: 36px;
+  padding: 0 var(--s-2);
+  border-radius: var(--r-sm);
+  text-align: left;
+  transition: background var(--ease);
+}
+
+.layer__pick:hover {
+  background: var(--surface-raised);
+}
+
+.layer__pick:active {
+  background: var(--surface-active);
+}
+
+.layer__kind {
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.layer__name {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.layer__icon {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  font-size: var(--text-sm);
+  line-height: 1;
+  color: var(--text-muted);
+  transition:
+    background var(--ease),
+    color var(--ease),
+    opacity var(--ease);
+}
+
+.layer__icon:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.layer__icon:active {
+  background: var(--surface-active);
+}
+
+.layer__icon:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.layer__icon[aria-pressed='true'] {
+  color: var(--danger);
+}

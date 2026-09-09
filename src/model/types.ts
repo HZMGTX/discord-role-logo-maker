@@ -67,6 +67,8 @@ export interface Transform {
   /** Degrees. */
   rotation: number;
   opacity: number;
+  flipX: boolean;
+  flipY: boolean;
 }
 
 export const FONTS = [
@@ -136,14 +138,80 @@ export type Content =
       shadow: boolean;
     }
   | { kind: 'symbol'; symbol: SymbolId; color: string; shadow: boolean }
-  | { kind: 'image'; src: string | null; fit: ImageFit; clip: boolean }
+  | { kind: 'image'; src: string | null; fit: ImageFit }
+  | {
+      kind: 'shape';
+      shape: ShapeKind;
+      sides: number;
+      innerRatio: number;
+      rotation: number;
+      cornerRadius: number;
+      fill: Fill;
+      border: Border;
+      shadow: boolean;
+    }
   | { kind: 'none' };
 
 export type ContentKind = Content['kind'];
-export const CONTENT_KINDS: readonly ContentKind[] = ['emoji', 'text', 'symbol', 'image', 'none'];
+export const CONTENT_KINDS: readonly ContentKind[] = [
+  'emoji',
+  'text',
+  'symbol',
+  'shape',
+  'image',
+  'none',
+];
 
-export interface IconState {
-  v: 1;
+export const CONTENT_KIND_LABELS: Record<ContentKind, string> = {
+  emoji: 'Emoji',
+  text: 'Text',
+  symbol: 'Symbol',
+  shape: 'Shape',
+  image: 'Image',
+  none: 'Empty',
+};
+
+/** Canvas composite operations, exposed as per-layer blend modes. */
+export const BLEND_MODES = [
+  'normal',
+  'multiply',
+  'screen',
+  'overlay',
+  'darken',
+  'lighten',
+  'color-dodge',
+  'color-burn',
+  'hard-light',
+  'soft-light',
+  'difference',
+  'exclusion',
+  'hue',
+  'saturation',
+  'color',
+  'luminosity',
+] as const;
+export type BlendMode = (typeof BLEND_MODES)[number];
+
+export function blendToComposite(mode: BlendMode): GlobalCompositeOperation {
+  return mode === 'normal' ? 'source-over' : (mode as GlobalCompositeOperation);
+}
+
+/** One item in the stack. An icon can hold as many as the user wants. */
+export interface Layer {
+  id: string;
+  /** User-facing name; empty means "derive it from the content". */
+  name: string;
+  hidden: boolean;
+  locked: boolean;
+  content: Content;
+  transform: Transform;
+  blend: BlendMode;
+  /** Clip this layer to the background silhouette. */
+  clip: boolean;
+}
+
+/** The plate every role icon sits on. It also defines the clipping silhouette. */
+export interface Background {
   shape: ShapeKind;
   /** Corner radius for the rounded square, as a fraction of the shape size (0..0.5). */
   cornerRadius: number;
@@ -152,14 +220,21 @@ export interface IconState {
   /** Spike depth for `burst`, 0..1. */
   innerRatio: number;
   /** Rotation of the silhouette itself, in degrees. */
-  shapeRotation: number;
+  rotation: number;
   fill: Fill;
   border: Border;
   shadow: Shadow;
   gloss: boolean;
-  content: Content;
-  transform: Transform;
 }
+
+export interface IconState {
+  v: 2;
+  background: Background;
+  /** Bottom to top. Empty means just the background plate. */
+  layers: Layer[];
+}
+
+export const MAX_LAYERS = 24;
 
 export interface PreviewSettings {
   username: string;
@@ -212,6 +287,7 @@ export const RANGES = {
   letterSpacing: { min: -0.1, max: 0.3, step: 0.01 },
   strokeWidth: { min: 0, max: 0.3, step: 0.01 },
   sides: { min: 3, max: 24, step: 1 },
+  layerStrokeWidth: { min: 0, max: 0.3, step: 0.01 },
   innerRatio: { min: 0.2, max: 0.95, step: 0.01 },
   shapeRotation: { min: -180, max: 180, step: 1 },
 } as const satisfies Record<string, Range>;

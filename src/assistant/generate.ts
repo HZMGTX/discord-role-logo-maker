@@ -1,4 +1,4 @@
-import { DEFAULT_ICON, cloneIcon } from '../model/defaults';
+import { DEFAULT_BACKGROUND, DEFAULT_TRANSFORM } from '../model/defaults';
 import { sanitizeIcon } from '../model/serialize';
 import {
   ROLE_COLORS,
@@ -113,6 +113,8 @@ export function contentLabel(content: Content): string {
       return SYMBOLS[content.symbol].label.toLowerCase();
     case 'text':
       return `“${content.text}”`;
+    case 'shape':
+      return content.shape;
     case 'image':
       return 'image';
     case 'none':
@@ -288,38 +290,56 @@ function buildIcon(
   fill: FillType,
   rng: () => number,
 ): IconState {
-  const icon = cloneIcon(DEFAULT_ICON);
   const [color1, color2] = palette;
   const light = fill === 'solid' ? isLight(color1) : isLight(color1) && isLight(color2);
   const foreground = ingredients.contentColor ?? (light ? darken(color2, 0.5) : '#ffffff');
-
-  icon.shape = shape;
-  icon.cornerRadius = Math.round((0.2 + rng() * 0.14) * 100) / 100;
-  icon.fill = { type: fill, color1, color2, angle: pick(rng, [135, 160, 45, 90, 180]) };
-  icon.content = withColor(content, foreground);
-  if ('shadow' in icon.content) {
-    icon.content.shadow = ingredients.contentShadow ?? rng() < 0.3;
-  }
-
   const wantBorder = ingredients.border ?? rng() < 0.5;
-  icon.border = wantBorder
-    ? { width: pick(rng, [0.03, 0.04, 0.05]), color: ingredients.contentColor ?? (light ? darken(color2, 0.35) : '#ffffff') }
-    : { width: 0, color: '#ffffff' };
-  icon.gloss = ingredients.gloss ?? rng() < 0.3;
-  icon.shadow = ingredients.glow
-    ? { enabled: true, blur: 0.08, opacity: 0.6, dx: 0, dy: 0, color: color1 }
-    : { ...DEFAULT_ICON.shadow, enabled: ingredients.shadow ?? rng() < 0.25 };
-  icon.transform = {
-    ...DEFAULT_ICON.transform,
-    scale: content.kind === 'text' ? 1 : pick(rng, [0.95, 1, 1.05, 1.1]),
-  };
+  const plain = shape === 'none';
 
-  if (shape === 'none') {
-    icon.border.width = 0;
-    icon.gloss = false;
-    icon.shadow.enabled = false;
-    icon.transform.scale = 1.3;
+  const layerContent = withColor(content, foreground);
+  if ('shadow' in layerContent) {
+    layerContent.shadow = ingredients.contentShadow ?? rng() < 0.3;
   }
+
+  const icon: IconState = {
+    v: 2,
+    background: {
+      ...structuredClone(DEFAULT_BACKGROUND),
+      shape,
+      cornerRadius: Math.round((0.2 + rng() * 0.14) * 100) / 100,
+      fill: { type: fill, color1, color2, angle: pick(rng, [135, 160, 45, 90, 180]) },
+      border:
+        wantBorder && !plain
+          ? {
+              width: pick(rng, [0.03, 0.04, 0.05]),
+              color: ingredients.contentColor ?? (light ? darken(color2, 0.35) : '#ffffff'),
+            }
+          : { width: 0, color: '#ffffff' },
+      gloss: plain ? false : (ingredients.gloss ?? rng() < 0.3),
+      shadow:
+        ingredients.glow && !plain
+          ? { enabled: true, blur: 0.08, opacity: 0.6, dx: 0, dy: 0, color: color1 }
+          : {
+              ...DEFAULT_BACKGROUND.shadow,
+              enabled: plain ? false : (ingredients.shadow ?? rng() < 0.25),
+            },
+    },
+    layers: [
+      {
+        id: 'a0',
+        name: '',
+        hidden: false,
+        locked: false,
+        content: layerContent,
+        transform: {
+          ...DEFAULT_TRANSFORM,
+          scale: plain ? 1.3 : content.kind === 'text' ? 1 : pick(rng, [0.95, 1, 1.05, 1.1]),
+        },
+        blend: 'normal',
+        clip: true,
+      },
+    ],
+  };
   return sanitizeIcon(icon);
 }
 

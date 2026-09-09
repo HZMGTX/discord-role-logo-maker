@@ -142,32 +142,34 @@ describe('generateIdeas', () => {
     for (const idea of ideas) {
       expect(sanitizeIcon(JSON.parse(JSON.stringify(idea.icon)))).toEqual(idea.icon);
       expect(idea.roleName).toBe('Owner');
-      const c = idea.icon.content;
-      expect(c.kind === 'emoji' || c.kind === 'symbol').toBe(true);
-      expect(c.kind === 'symbol' ? c.symbol : c.kind === 'emoji' ? c.emoji : '').toMatch(/crown|👑|🫅|🏰/);
+      const c = idea.icon.layers[0]?.content;
+      expect(c?.kind === 'emoji' || c?.kind === 'symbol').toBe(true);
+      const mark = c?.kind === 'symbol' ? c.symbol : c?.kind === 'emoji' ? c.emoji : '';
+      expect(mark).toMatch(/crown|👑|🫅|🏰/);
     }
     for (const idea of ideas) {
-      if (idea.icon.content.kind === 'symbol') expect(idea.icon.content.color).toBe('#f1c40f');
-      expect(idea.icon.fill.color1).not.toBe('#f1c40f');
+      const content = idea.icon.layers[0]?.content;
+      if (content?.kind === 'symbol') expect(content.color).toBe('#f1c40f');
+      expect(idea.icon.background.fill.color1).not.toBe('#f1c40f');
     }
   });
 
   it('respects a pasted emoji, a shape and a color', () => {
     const { ideas } = generateIdeas('🐸 on a green badge', 3, 4);
     for (const idea of ideas) {
-      expect(idea.icon.shape).toBe('badge');
-      expect(idea.icon.content).toMatchObject({ kind: 'emoji', emoji: '🐸' });
-      expect(idea.icon.fill.color1).toBe('#2ecc71');
+      expect(idea.icon.background.shape).toBe('badge');
+      expect(idea.icon.layers[0]?.content).toMatchObject({ kind: 'emoji', emoji: '🐸' });
+      expect(idea.icon.background.fill.color1).toBe('#2ecc71');
     }
   });
 
   it('puts requested text on every idea, in the requested color', () => {
     const { ideas } = generateIdeas('initials MD in bold white on navy', 0, 4);
     for (const idea of ideas) {
-      expect(idea.icon.content).toMatchObject({ kind: 'text', text: 'MD', color: '#f2f3f5' });
-      expect(idea.icon.fill.color1).toBe('#1b3b6f');
+      expect(idea.icon.layers[0]?.content).toMatchObject({ kind: 'text', text: 'MD', color: '#f2f3f5' });
+      expect(idea.icon.background.fill.color1).toBe('#1b3b6f');
     }
-    expect(new Set(ideas.map((i) => (i.icon.content.kind === 'text' ? i.icon.content.font : ''))).size).toBeGreaterThan(1);
+    expect(new Set(ideas.map((i) => (i.icon.layers[0]?.content.kind === 'text' ? i.icon.layers[0]?.content.font : ''))).size).toBeGreaterThan(1);
   });
 
   it('falls back to generic ideas and says so', () => {
@@ -182,27 +184,27 @@ describe('generateIdeas', () => {
     const b = generateIdeas('neon hexagon for gamers', 2);
     expect(JSON.stringify(a.ideas)).toBe(JSON.stringify(b.ideas));
     for (const idea of a.ideas) {
-      expect(idea.icon.shape).toBe('hexagon');
-      expect(idea.icon.shadow.enabled).toBe(true);
+      expect(idea.icon.background.shape).toBe('hexagon');
+      expect(idea.icon.background.shadow.enabled).toBe(true);
     }
   });
 
   it('keeps a shield emoji off a shield shape and names roles after nouns', () => {
     const shield = generateIdeas('shield shape for moderators', 0, 6);
     for (const idea of shield.ideas) {
-      expect(idea.icon.content).not.toMatchObject({ kind: 'emoji', emoji: '🛡️' });
-      expect(idea.icon.content).not.toMatchObject({ kind: 'symbol', symbol: 'shield' });
+      expect(idea.icon.layers[0]?.content).not.toMatchObject({ kind: 'emoji', emoji: '🛡️' });
+      expect(idea.icon.layers[0]?.content).not.toMatchObject({ kind: 'symbol', symbol: 'shield' });
     }
     expect(generateIdeas('dog lovers', 0, 2).ideas[0]?.roleName).toBe('Dog Lovers');
     const staff = generateIdeas('Make me a icon for staff manager role', 0, 6);
     expect(staff.ideas[0]?.roleName).toBe('Staff Manager');
     expect(staff.reply).toMatch(/^Here are 6 ideas for Staff Manager\./);
-    expect(staff.ideas.some((i) => i.icon.content.kind === 'symbol' && i.icon.content.symbol === 'crown')).toBe(true);
+    expect(staff.ideas.some((i) => i.icon.layers[0]?.content.kind === 'symbol' && i.icon.layers[0]?.content.symbol === 'crown')).toBe(true);
     const crown = generateIdeas('gold crown on blue', 0, 6);
-    const symbols = crown.ideas.filter((i) => i.icon.content.kind === 'symbol');
+    const symbols = crown.ideas.filter((i) => i.icon.layers[0]?.content.kind === 'symbol');
     expect(symbols.length).toBeGreaterThan(0);
-    for (const idea of symbols) expect(idea.icon.content).toMatchObject({ color: '#f1c40f' });
-    for (const idea of crown.ideas) expect(idea.icon.fill.color1).toBe('#3498db');
+    for (const idea of symbols) expect(idea.icon.layers[0]?.content).toMatchObject({ color: '#f1c40f' });
+    for (const idea of crown.ideas) expect(idea.icon.background.fill.color1).toBe('#3498db');
   });
 
   it('gives a different batch on later rounds while staying deterministic per round', () => {
@@ -215,7 +217,7 @@ describe('generateIdeas', () => {
     expect(captions(generateIdeas('gold crown for the server owner', 1))).toBe(captions(second));
     expect(second.reply).toMatch(/^Here are 6 more ideas/);
     for (const idea of [...second.ideas, ...third.ideas]) {
-      expect(idea.icon.content.kind === 'symbol' ? idea.icon.content.symbol : idea.icon.content.kind === 'emoji' ? idea.icon.content.emoji : '').toMatch(/crown|👑|🫅|🏰/);
+      expect(idea.icon.layers[0]?.content.kind === 'symbol' ? idea.icon.layers[0]?.content.symbol : idea.icon.layers[0]?.content.kind === 'emoji' ? idea.icon.layers[0]?.content.emoji : '').toMatch(/crown|👑|🫅|🏰/);
     }
   });
 
@@ -238,48 +240,59 @@ describe('refineIcon', () => {
   it('darkens the fill', () => {
     const result = refineIcon(DEFAULT_ICON, 'make it darker');
     expect(result?.reply).toBe('Made it darker.');
-    expect(luminance(result?.icon.fill.color1 ?? '#ffffff')).toBeLessThan(luminance(DEFAULT_ICON.fill.color1));
+    expect(luminance(result?.icon.background.fill.color1 ?? '#ffffff')).toBeLessThan(luminance(DEFAULT_ICON.background.fill.color1));
   });
 
   it('adds and removes a border', () => {
-    const noBorder = { ...DEFAULT_ICON, border: { width: 0, color: '#ffffff' } };
+    const noBorder = {
+      ...DEFAULT_ICON,
+      background: { ...DEFAULT_ICON.background, border: { width: 0, color: '#ffffff' } },
+    };
     const added = refineIcon(noBorder, 'add a border');
-    expect(added?.icon.border.width).toBeGreaterThan(0);
+    expect(added?.icon.background.border.width).toBeGreaterThan(0);
     const removed = refineIcon(DEFAULT_ICON, 'remove the border');
-    expect(removed?.icon.border.width).toBe(0);
+    expect(removed?.icon.background.border.width).toBe(0);
   });
 
   it('changes shapes', () => {
-    expect(refineIcon(DEFAULT_ICON, 'hexagon')?.icon.shape).toBe('hexagon');
-    expect(refineIcon(DEFAULT_ICON, 'make it a star shape')?.icon.shape).toBe('star');
-    expect(refineIcon(DEFAULT_ICON, 'no background')?.icon.shape).toBe('none');
+    expect(refineIcon(DEFAULT_ICON, 'hexagon')?.icon.background.shape).toBe('hexagon');
+    expect(refineIcon(DEFAULT_ICON, 'make it a star shape')?.icon.background.shape).toBe('star');
+    expect(refineIcon(DEFAULT_ICON, 'no background')?.icon.background.shape).toBe('none');
   });
 
   it('changes the content and colors', () => {
     const skull = refineIcon(DEFAULT_ICON, 'use a skull');
-    const c = skull?.icon.content;
+    const c = skull?.icon.layers[0]?.content;
     expect(c && (c.kind === 'emoji' ? c.emoji === '💀' : c.kind === 'symbol' && c.symbol === 'skull')).toBe(true);
-    expect(refineIcon(DEFAULT_ICON, 'make it red')?.icon.fill.color1).toBe('#e74c3c');
+    expect(refineIcon(DEFAULT_ICON, 'make it red')?.icon.background.fill.color1).toBe('#e74c3c');
     const text = refineIcon(DEFAULT_ICON, 'use the letters GG');
-    expect(text?.icon.content).toMatchObject({ kind: 'text', text: 'GG' });
+    expect(text?.icon.layers[0]?.content).toMatchObject({ kind: 'text', text: 'GG' });
   });
 
   it('does not repeat itself and colors the icon separately from the background', () => {
     expect(refineIcon(DEFAULT_ICON, 'bigger and glossy')?.reply).toBe('Made the content bigger and made it glossy.');
-    const symbolIcon = { ...DEFAULT_ICON, content: { kind: 'symbol' as const, symbol: 'crown' as const, color: '#ffffff', shadow: false } };
+    const symbolIcon = {
+      ...DEFAULT_ICON,
+      layers: [
+        {
+          ...DEFAULT_ICON.layers[0]!,
+          content: { kind: 'symbol' as const, symbol: 'crown' as const, color: '#ffffff', shadow: false },
+        },
+      ],
+    };
     const recolored = refineIcon(symbolIcon, 'make the icon gold');
-    expect(recolored?.icon.content).toMatchObject({ kind: 'symbol', color: '#f1c40f' });
-    expect(recolored?.icon.fill.color1).toBe(DEFAULT_ICON.fill.color1);
+    expect(recolored?.icon.layers[0]?.content).toMatchObject({ kind: 'symbol', color: '#f1c40f' });
+    expect(recolored?.icon.background.fill.color1).toBe(DEFAULT_ICON.background.fill.color1);
   });
 
   it('polishes on "better" and swaps emoji for drawn symbols on request', () => {
     const result = refineIcon(DEFAULT_ICON, "Make it better but don't make it use normal emoji");
-    expect(result?.icon.content).toMatchObject({ kind: 'symbol', symbol: 'crown' });
-    expect(result?.icon.gloss).toBe(true);
-    expect(result?.icon.shadow.enabled).toBe(true);
+    expect(result?.icon.layers[0]?.content).toMatchObject({ kind: 'symbol', symbol: 'crown' });
+    expect(result?.icon.background.gloss).toBe(true);
+    expect(result?.icon.background.shadow.enabled).toBe(true);
     expect(result?.reply).toMatch(/^Polished it with .* and swapped the emoji for a drawn crown\.$/);
     const back = refineIcon(result!.icon, 'use an emoji instead');
-    expect(back?.icon.content).toMatchObject({ kind: 'emoji', emoji: '👑' });
+    expect(back?.icon.layers[0]?.content).toMatchObject({ kind: 'emoji', emoji: '👑' });
     const again = refineIcon(result!.icon, 'make it better');
     expect(again?.reply).toMatch(/already has all the finishing touches/);
   });

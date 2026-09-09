@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import type { Idea } from '../../assistant/generate';
 import type { ExportSize, IconState, PreviewSettings } from '../../model/types';
 import { AssistantTab } from './AssistantTab';
-import { ContentTab } from './ContentTab';
+import { LayersTab } from './LayersTab';
 import { EffectsTab } from './EffectsTab';
 import { ExportTab } from './ExportTab';
 import { FillTab } from './FillTab';
@@ -13,7 +13,7 @@ const TABS = [
   { id: 'ai', label: '✨ AI' },
   { id: 'shape', label: 'Shape' },
   { id: 'fill', label: 'Fill' },
-  { id: 'content', label: 'Content' },
+  { id: 'layers', label: 'Layers' },
   { id: 'effects', label: 'Effects' },
   { id: 'export', label: 'Export' },
 ] as const;
@@ -25,6 +25,9 @@ interface ControlPanelProps {
   onTabChange: (tab: TabId) => void;
   icon: IconState;
   updateIcon: IconUpdater;
+  setIcon: (next: IconState) => void;
+  selectedLayerId: string | null;
+  onSelectLayer: (id: string | null) => void;
   assistantFocusToken: number;
   onApplyIdea: (idea: Idea) => void;
   onApplyIcon: (icon: IconState, roleName?: string) => void;
@@ -40,6 +43,9 @@ export function ControlPanel({
   onTabChange,
   icon,
   updateIcon,
+  setIcon,
+  selectedLayerId,
+  onSelectLayer,
   assistantFocusToken,
   onApplyIdea,
   onApplyIcon,
@@ -100,7 +106,16 @@ export function ControlPanel({
         )}
         {tab === 'shape' && <ShapeTab icon={icon} updateIcon={updateIcon} />}
         {tab === 'fill' && <FillTab icon={icon} updateIcon={updateIcon} />}
-        {tab === 'content' && <ContentTab icon={icon} updateIcon={updateIcon} notify={notify} />}
+        {tab === 'layers' && (
+          <LayersTab
+            icon={icon}
+            updateIcon={updateIcon}
+            setIcon={setIcon}
+            selectedLayerId={selectedLayerId}
+            onSelectLayer={onSelectLayer}
+            notify={notify}
+          />
+        )}
         {tab === 'effects' && <EffectsTab icon={icon} updateIcon={updateIcon} />}
         {tab === 'export' && (
           <ExportTab

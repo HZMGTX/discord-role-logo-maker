@@ -11,7 +11,24 @@ import {
   serializePersisted,
   stripImages,
 } from './serialize';
-import type { IconState } from './types';
+import { MAX_LAYERS, type IconState } from './types';
+
+/** An icon exactly as the previous version of the app wrote it. */
+const V1_ICON = {
+  v: 1,
+  shape: 'shield',
+  cornerRadius: 0.3,
+  fill: { type: 'linear', color1: '#ff5f5f', color2: '#b3121b', angle: 160 },
+  border: { width: 0.04, color: '#ffffff' },
+  shadow: { enabled: true, blur: 0.04, opacity: 0.35, dx: 0, dy: 0.02, color: '#000000' },
+  gloss: true,
+  content: { kind: 'symbol', symbol: 'crown', color: '#ffffff', shadow: false },
+  transform: { scale: 1.1, x: 0, y: -0.05, rotation: 0, opacity: 1 },
+};
+
+function toBase64Url(text: string): string {
+  return btoa(text).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
 
 describe('share links', () => {
   it('round-trips every preset', () => {
@@ -32,19 +49,55 @@ describe('share links', () => {
   it('rejects garbage and unknown versions', () => {
     expect(decodeShare('')).toBeNull();
     expect(decodeShare('not base64 at all!!')).toBeNull();
-    expect(decodeShare(btoa('{"v":2}'))).toBeNull();
+    expect(decodeShare(btoa('{"v":9}'))).toBeNull();
     expect(decodeShare(btoa('[]'))).toBeNull();
   });
 
-  it('strips uploaded image data', () => {
+  it('still opens a link written by the previous version', () => {
+    const legacy = toBase64Url(
+      JSON.stringify({
+        v: 1,
+        icon: V1_ICON,
+        preview: { username: 'Ayla', roleName: 'Admin', roleColor: '#e74c3c' },
+      }),
+    );
+    const decoded = decodeShare(legacy);
+    expect(decoded).not.toBeNull();
+    const icon = decoded!.icon;
+    expect(icon.v).toBe(2);
+    expect(icon.background.shape).toBe('shield');
+    expect(icon.background.fill.color1).toBe('#ff5f5f');
+    expect(icon.background.gloss).toBe(true);
+    expect(icon.background.shadow.enabled).toBe(true);
+    expect(icon.layers).toHaveLength(1);
+    expect(icon.layers[0]?.content).toEqual({
+      kind: 'symbol',
+      symbol: 'crown',
+      color: '#ffffff',
+      shadow: false,
+    });
+    expect(icon.layers[0]?.transform).toMatchObject({ scale: 1.1, y: -0.05 });
+    expect(icon.layers[0]?.clip).toBe(true);
+    expect(decoded!.preview.roleName).toBe('Admin');
+  });
+
+  it('strips uploaded image data from every layer', () => {
     const icon: IconState = {
       ...DEFAULT_ICON,
-      content: { kind: 'image', src: 'data:image/png;base64,AAAA', fit: 'contain', clip: false },
+      layers: [
+        { ...DEFAULT_ICON.layers[0]!, id: 'a' },
+        {
+          ...DEFAULT_ICON.layers[0]!,
+          id: 'b',
+          content: { kind: 'image', src: 'data:image/png;base64,AAAA', fit: 'contain' },
+        },
+      ],
     };
     const stripped = stripImages(icon);
-    expect(stripped.content).toEqual({ kind: 'image', src: null, fit: 'contain', clip: false });
+    expect(stripped.layers[1]?.content).toEqual({ kind: 'image', src: null, fit: 'contain' });
+    expect(stripped.layers[0]).toEqual(icon.layers[0]);
     const decoded = decodeShare(encodeShare(icon, DEFAULT_PREVIEW));
-    expect(decoded?.icon.content).toEqual(stripped.content);
+    expect(decoded?.icon.layers[1]?.content).toEqual({ kind: 'image', src: null, fit: 'contain' });
     expect(stripImages(DEFAULT_ICON)).toBe(DEFAULT_ICON);
   });
 
@@ -56,40 +109,96 @@ describe('share links', () => {
   });
 });
 
+describe('migrating a v1 icon', () => {
+  it('keeps an unclipped image unclipped', () => {
+    const icon = sanitizeIcon({
+      ...V1_ICON,
+      content: { kind: 'image', src: 'data:image/png;base64,AAAA', fit: 'cover', clip: false },
+    });
+    expect(icon.layers[0]?.clip).toBe(false);
+    expect(icon.layers[0]?.content).toEqual({
+      kind: 'image',
+      src: 'data:image/png;base64,AAAA',
+      fit: 'cover',
+    });
+  });
+
+  it('turns empty content into a bare plate', () => {
+    const icon = sanitizeIcon({ ...V1_ICON, content: { kind: 'none' } });
+    expect(icon.layers).toEqual([]);
+    expect(icon.background.shape).toBe('shield');
+  });
+});
+
 describe('sanitizeIcon', () => {
   it('clamps numbers and falls back on bad enums', () => {
     const icon = sanitizeIcon({
-      shape: 'blob',
-      cornerRadius: 9,
-      fill: { type: 'linear', color1: 'red', angle: -50 },
-      transform: { scale: 100, rotation: 'sideways' },
-      content: { kind: 'symbol', symbol: 'nope' },
+      v: 2,
+      background: {
+        shape: 'blob',
+        cornerRadius: 9,
+        fill: { type: 'linear', color1: 'red', angle: -50 },
+      },
+      layers: [
+        {
+          id: 'x',
+          content: { kind: 'symbol', symbol: 'nope' },
+          transform: { scale: 100, rotation: 'sideways' },
+          blend: 'teleport',
+        },
+      ],
     });
-    expect(icon.shape).toBe(DEFAULT_ICON.shape);
-    expect(icon.cornerRadius).toBe(0.5);
-    expect(icon.fill.color1).toBe(DEFAULT_ICON.fill.color1);
-    expect(icon.fill.angle).toBe(0);
-    expect(icon.transform.scale).toBe(1.5);
-    expect(icon.transform.rotation).toBe(0);
-    expect(icon.content).toEqual({ kind: 'symbol', symbol: 'crown', color: '#ffffff', shadow: false });
+    expect(icon.background.shape).toBe(DEFAULT_ICON.background.shape);
+    expect(icon.background.cornerRadius).toBe(0.5);
+    expect(icon.background.fill.color1).toBe(DEFAULT_ICON.background.fill.color1);
+    expect(icon.background.fill.angle).toBe(0);
+    expect(icon.layers[0]?.transform.scale).toBe(1.5);
+    expect(icon.layers[0]?.transform.rotation).toBe(0);
+    expect(icon.layers[0]?.blend).toBe('normal');
+    expect(icon.layers[0]?.content).toEqual({
+      kind: 'symbol',
+      symbol: 'crown',
+      color: '#ffffff',
+      shadow: false,
+    });
   });
 
-  it('clamps the new shape controls and rounds the side count', () => {
-    const icon = sanitizeIcon({ shape: 'burst', sides: 99.7, innerRatio: -3, shapeRotation: 900 });
-    expect(icon.shape).toBe('burst');
-    expect(icon.sides).toBe(24);
-    expect(icon.innerRatio).toBe(0.2);
-    expect(icon.shapeRotation).toBe(180);
-    expect(sanitizeIcon({ shape: 'polygon', sides: 3.4 }).sides).toBe(3);
-    expect(sanitizeIcon({}).sides).toBe(DEFAULT_ICON.sides);
+  it('clamps the shape controls and rounds the side count', () => {
+    const icon = sanitizeIcon({
+      v: 2,
+      background: { shape: 'burst', sides: 99.7, innerRatio: -3, rotation: 900 },
+      layers: [],
+    });
+    expect(icon.background.shape).toBe('burst');
+    expect(icon.background.sides).toBe(24);
+    expect(icon.background.innerRatio).toBe(0.2);
+    expect(icon.background.rotation).toBe(180);
+  });
+
+  it('gives every layer a unique id and caps the stack', () => {
+    const icon = sanitizeIcon({
+      v: 2,
+      background: {},
+      layers: Array.from({ length: MAX_LAYERS + 5 }, () => ({
+        id: 'same',
+        content: { kind: 'emoji', emoji: '⭐' },
+      })),
+    });
+    expect(icon.layers).toHaveLength(MAX_LAYERS);
+    expect(new Set(icon.layers.map((l) => l.id)).size).toBe(MAX_LAYERS);
   });
 
   it('only accepts a plain font family name', () => {
-    const ok = sanitizeIcon({ content: { kind: 'text', text: 'A', customFont: 'Comic Neue' } });
-    expect(ok.content).toMatchObject({ kind: 'text', customFont: 'Comic Neue' });
+    const text = (customFont: unknown) => ({
+      v: 2,
+      background: {},
+      layers: [{ content: { kind: 'text', text: 'A', customFont } }],
+    });
+    expect(sanitizeIcon(text('Comic Neue')).layers[0]?.content).toMatchObject({
+      customFont: 'Comic Neue',
+    });
     for (const bad of ['a"; }', 'x'.repeat(60), '', '  ', 42, null]) {
-      const icon = sanitizeIcon({ content: { kind: 'text', text: 'A', customFont: bad } });
-      expect(icon.content).toMatchObject({ kind: 'text', customFont: null });
+      expect(sanitizeIcon(text(bad)).layers[0]?.content).toMatchObject({ customFont: null });
     }
   });
 
@@ -111,6 +220,14 @@ describe('persisted state', () => {
     const parsed = parsePersisted(serializePersisted(DEFAULT_ICON, DEFAULT_PREVIEW));
     expect(parsed?.icon).toEqual(DEFAULT_ICON);
     expect(parsed?.preview).toEqual(DEFAULT_PREVIEW);
+  });
+
+  it('migrates a design saved by the previous version', () => {
+    const legacy = JSON.stringify({ v: 1, icon: V1_ICON, preview: DEFAULT_PREVIEW });
+    const parsed = parsePersisted(legacy);
+    expect(parsed?.icon.v).toBe(2);
+    expect(parsed?.icon.background.shape).toBe('shield');
+    expect(parsed?.icon.layers).toHaveLength(1);
   });
 
   it('returns null for missing or invalid data', () => {

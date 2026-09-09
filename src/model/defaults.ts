@@ -1,18 +1,72 @@
-import type { Content, ContentKind, IconState, PreviewSettings } from './types';
+import type {
+  Background,
+  Content,
+  ContentKind,
+  IconState,
+  Layer,
+  PreviewSettings,
+  Transform,
+} from './types';
 
-export const DEFAULT_ICON: IconState = {
-  v: 1,
+export const DEFAULT_TRANSFORM: Transform = {
+  scale: 1,
+  x: 0,
+  y: 0,
+  rotation: 0,
+  opacity: 1,
+  flipX: false,
+  flipY: false,
+};
+
+export const DEFAULT_BACKGROUND: Background = {
   shape: 'circle',
   cornerRadius: 0.25,
   sides: 6,
   innerRatio: 0.62,
-  shapeRotation: 0,
+  rotation: 0,
   fill: { type: 'linear', color1: '#3498db', color2: '#206694', angle: 135 },
   border: { width: 0.04, color: '#ffffff' },
   shadow: { enabled: false, blur: 0.04, opacity: 0.35, dx: 0, dy: 0.02, color: '#000000' },
   gloss: false,
-  content: { kind: 'emoji', emoji: '👑', shadow: false },
-  transform: { scale: 1, x: 0, y: 0, rotation: 0, opacity: 1 },
+};
+
+let layerSeq = 0;
+
+/** A unique id for a new layer. Ids only need to be unique within one design. */
+export function nextLayerId(): string {
+  layerSeq += 1;
+  return `l${layerSeq}`;
+}
+
+export function makeLayer(content: Content, overrides: Partial<Layer> = {}): Layer {
+  return {
+    id: nextLayerId(),
+    name: '',
+    hidden: false,
+    locked: false,
+    content,
+    transform: { ...DEFAULT_TRANSFORM },
+    blend: 'normal',
+    clip: true,
+    ...overrides,
+  };
+}
+
+export const DEFAULT_ICON: IconState = {
+  v: 2,
+  background: structuredClone(DEFAULT_BACKGROUND),
+  layers: [
+    {
+      id: 'l0',
+      name: '',
+      hidden: false,
+      locked: false,
+      content: { kind: 'emoji', emoji: '\u{1F451}', shadow: false },
+      transform: { ...DEFAULT_TRANSFORM },
+      blend: 'normal',
+      clip: true,
+    },
+  ],
 };
 
 export const DEFAULT_PREVIEW: PreviewSettings = {
@@ -29,7 +83,7 @@ export function defaultContent(kind: ContentKind, prev?: Content): Content {
   const prevShadow = prev && 'shadow' in prev ? prev.shadow : false;
   switch (kind) {
     case 'emoji':
-      return { kind: 'emoji', emoji: '👑', shadow: prevShadow };
+      return { kind: 'emoji', emoji: '\u{1F451}', shadow: prevShadow };
     case 'text':
       return {
         kind: 'text',
@@ -44,8 +98,20 @@ export function defaultContent(kind: ContentKind, prev?: Content): Content {
       };
     case 'symbol':
       return { kind: 'symbol', symbol: 'crown', color: prevColor, shadow: prevShadow };
+    case 'shape':
+      return {
+        kind: 'shape',
+        shape: 'circle',
+        sides: 6,
+        innerRatio: 0.62,
+        rotation: 0,
+        cornerRadius: 0.25,
+        fill: { type: 'solid', color1: '#ffffff', color2: '#ffffff', angle: 135 },
+        border: { width: 0, color: '#000000' },
+        shadow: prevShadow,
+      };
     case 'image':
-      return { kind: 'image', src: null, fit: 'cover', clip: true };
+      return { kind: 'image', src: null, fit: 'cover' };
     case 'none':
       return { kind: 'none' };
   }
@@ -53,4 +119,24 @@ export function defaultContent(kind: ContentKind, prev?: Content): Content {
 
 export function cloneIcon(state: IconState): IconState {
   return structuredClone(state);
+}
+
+/** The label shown for a layer in the list when it has no custom name. */
+export function layerLabel(layer: Layer): string {
+  if (layer.name.trim()) return layer.name.trim();
+  const c = layer.content;
+  switch (c.kind) {
+    case 'emoji':
+      return c.emoji;
+    case 'text':
+      return c.text.trim() ? `“${c.text.trim()}”` : 'Text';
+    case 'symbol':
+      return c.symbol.charAt(0).toUpperCase() + c.symbol.slice(1);
+    case 'shape':
+      return c.shape.charAt(0).toUpperCase() + c.shape.slice(1);
+    case 'image':
+      return c.src ? 'Image' : 'Empty image';
+    case 'none':
+      return 'Empty';
+  }
 }

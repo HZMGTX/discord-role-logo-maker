@@ -18,7 +18,7 @@ const LABELS: Record<FillType, [string, string]> = {
 };
 
 export function FillTab({ icon, updateIcon }: TabProps) {
-  const { fill } = icon;
+  const { fill } = icon.background;
   const [label1, label2] = LABELS[fill.type];
   return (
     <>
@@ -31,7 +31,7 @@ export function FillTab({ icon, updateIcon }: TabProps) {
           value={fill.type}
           onChange={(value) =>
             updateIcon((draft) => {
-              draft.fill.type = value;
+              draft.background.fill.type = value;
             })
           }
         />
@@ -40,7 +40,7 @@ export function FillTab({ icon, updateIcon }: TabProps) {
           value={fill.color1}
           onChange={(hex) =>
             updateIcon((draft) => {
-              draft.fill.color1 = hex;
+              draft.background.fill.color1 = hex;
             })
           }
         />
@@ -50,7 +50,7 @@ export function FillTab({ icon, updateIcon }: TabProps) {
             value={fill.color2}
             onChange={(hex) =>
               updateIcon((draft) => {
-                draft.fill.color2 = hex;
+                draft.background.fill.color2 = hex;
               })
             }
           />
@@ -63,7 +63,7 @@ export function FillTab({ icon, updateIcon }: TabProps) {
             format={degrees}
             onChange={(value) =>
               updateIcon((draft) => {
-                draft.fill.angle = value;
+                draft.background.fill.angle = value;
               })
             }
           />
@@ -74,7 +74,7 @@ export function FillTab({ icon, updateIcon }: TabProps) {
             className="btn btn--sm"
             onClick={() =>
               updateIcon((draft) => {
-                [draft.fill.color1, draft.fill.color2] = [draft.fill.color2, draft.fill.color1];
+                [draft.background.fill.color1, draft.background.fill.color2] = [draft.background.fill.color2, draft.background.fill.color1];
               })
             }
           >
@@ -93,7 +93,7 @@ export function FillTab({ icon, updateIcon }: TabProps) {
           value={fill.color1}
           onChange={(hex) =>
             updateIcon((draft) => {
-              draft.fill.color1 = hex;
+              draft.background.fill.color1 = hex;
             })
           }
         />
