@@ -1,4 +1,4 @@
-import { DEFAULT_ICON, cloneIcon } from '../model/defaults';
+import { DEFAULT_BACKGROUND, DEFAULT_TRANSFORM, fillOf, makeLayer } from '../model/defaults';
 import { sanitizeIcon } from '../model/serialize';
 import {
   ROLE_COLORS,
@@ -13,10 +13,12 @@ import {
 import { colorDistance, darken, luminance } from '../render/color';
 import { SYMBOLS } from '../render/symbols';
 import {
+  COLOR_WORDS,
   GENERIC_EMOJI,
   GENERIC_PALETTES,
   GENERIC_SHAPES,
   GENERIC_SYMBOLS,
+  STOP_WORDS,
   type Palette,
   type Style,
   type Theme,
@@ -38,6 +40,44 @@ export interface AssistantResult {
   parsed: ParsedPrompt;
   /** False when nothing in the prompt was recognised and the ideas are generic. */
   understood: boolean;
+}
+
+const SMALL_TALK: ReadonlyArray<{ pattern: RegExp; reply: string }> = [
+  {
+    pattern: /^(hi|hello|hey|yo|sup|hiya|howdy|hola|good (morning|evening|afternoon))\b/i,
+    reply: "Hi! Tell me who the role is for and I'll design a few icons. For example: “gold crown for the server owner”, “cute pink icon for the artists” or “neon hexagon for gamers”.",
+  },
+  {
+    pattern: /\b(what can you do|what do you do|how does this work|how do i use|how to use|help me|can you help|what is this)\b/i,
+    reply: 'Describe the role (who it is for, a color, a mood, a shape or an emoji) and I will design six icons you can load and tweak. After loading one, tell me things like “darker”, “add a border”, “use a skull” or “make it a hexagon”. Every click on Generate gives a fresh batch.',
+  },
+  {
+    pattern: /\b(thanks|thank you|thx|ty|cheers)\b/i,
+    reply: "You're welcome! Download it from the Export tab when you're happy, or keep tweaking.",
+  },
+  {
+    pattern: /^(ok|okay|cool|nice|great|good|lol|k|yes|no|hmm)\W*$/i,
+    reply: 'Tell me who the role is for whenever you are ready, or pick one of the examples above.',
+  },
+];
+
+const GREETING_WORDS = new Set(['hi', 'hello', 'hey', 'wave', 'thanks', 'ok']);
+
+/** A conversational reply for greetings and questions that describe no icon at all. */
+export function smallTalk(prompt: string, parsed: ParsedPrompt): string | null {
+  const describesIcon =
+    parsed.themes.length > 0 ||
+    parsed.emojiWords.some((w) => !GREETING_WORDS.has(w.word)) ||
+    parsed.colors.length > 0 ||
+    parsed.contentColor !== null ||
+    parsed.shape !== null ||
+    parsed.text !== null ||
+    parsed.emoji !== null ||
+    parsed.styles.length > 0;
+  if (describesIcon) return null;
+  const trimmed = prompt.trim();
+  for (const { pattern, reply } of SMALL_TALK) if (pattern.test(trimmed)) return reply;
+  return null;
 }
 
 export const EXAMPLE_PROMPTS: readonly string[] = [
@@ -73,6 +113,8 @@ export function contentLabel(content: Content): string {
       return SYMBOLS[content.symbol].label.toLowerCase();
     case 'text':
       return `“${content.text}”`;
+    case 'shape':
+      return content.shape;
     case 'image':
       return 'image';
     case 'none':
@@ -134,6 +176,7 @@ function buildIngredients(parsed: ParsedPrompt): Ingredients {
         kind: 'text',
         text: parsed.text,
         font: f,
+        customFont: null,
         weight: 900,
         color: '#ffffff',
         letterSpacing: 0.02,
@@ -144,12 +187,13 @@ function buildIngredients(parsed: ParsedPrompt): Ingredients {
   } else {
     const emojiList: string[] = [];
     const symbolList: SymbolId[] = [];
-    for (const word of parsed.emojiWords) emojiList.push(...word.emoji);
+    for (const word of parsed.emojiWords) if (word.source === 'curated') emojiList.push(...word.emoji);
     if (theme) {
       emojiList.push(...theme.emoji);
       symbolList.push(...theme.symbols);
     }
-    if (secondary && parsed.emojiWords.length === 0) {
+    for (const word of parsed.emojiWords) if (word.source === 'unicode') emojiList.push(...word.emoji);
+    if (secondary && !parsed.emojiWords.some((w) => w.source === 'curated')) {
       emojiList.push(...secondary.emoji.slice(0, 1));
       symbolList.push(...secondary.symbols.slice(0, 1));
     }
@@ -246,52 +290,96 @@ function buildIcon(
   fill: FillType,
   rng: () => number,
 ): IconState {
-  const icon = cloneIcon(DEFAULT_ICON);
   const [color1, color2] = palette;
   const light = fill === 'solid' ? isLight(color1) : isLight(color1) && isLight(color2);
   const foreground = ingredients.contentColor ?? (light ? darken(color2, 0.5) : '#ffffff');
-
-  icon.shape = shape;
-  icon.cornerRadius = Math.round((0.2 + rng() * 0.14) * 100) / 100;
-  icon.fill = { type: fill, color1, color2, angle: pick(rng, [135, 160, 45, 90, 180]) };
-  icon.content = withColor(content, foreground);
-  if ('shadow' in icon.content) {
-    icon.content.shadow = ingredients.contentShadow ?? rng() < 0.3;
-  }
-
   const wantBorder = ingredients.border ?? rng() < 0.5;
-  icon.border = wantBorder
-    ? { width: pick(rng, [0.03, 0.04, 0.05]), color: ingredients.contentColor ?? (light ? darken(color2, 0.35) : '#ffffff') }
-    : { width: 0, color: '#ffffff' };
-  icon.gloss = ingredients.gloss ?? rng() < 0.3;
-  icon.shadow = ingredients.glow
-    ? { enabled: true, blur: 0.08, opacity: 0.6, dx: 0, dy: 0, color: color1 }
-    : { ...DEFAULT_ICON.shadow, enabled: ingredients.shadow ?? rng() < 0.25 };
-  icon.transform = {
-    ...DEFAULT_ICON.transform,
-    scale: content.kind === 'text' ? 1 : pick(rng, [0.95, 1, 1.05, 1.1]),
-  };
+  const plain = shape === 'none';
 
-  if (shape === 'none') {
-    icon.border.width = 0;
-    icon.gloss = false;
-    icon.shadow.enabled = false;
-    icon.transform.scale = 1.3;
+  const layerContent = withColor(content, foreground);
+  if ('shadow' in layerContent) {
+    layerContent.shadow = ingredients.contentShadow ?? rng() < 0.3;
   }
+
+  const icon: IconState = {
+    v: 2,
+    background: {
+      ...structuredClone(DEFAULT_BACKGROUND),
+      shape,
+      cornerRadius: Math.round((0.2 + rng() * 0.14) * 100) / 100,
+      fill: fillOf({ type: fill, color1, color2, angle: pick(rng, [135, 160, 45, 90, 180]) }),
+      border:
+        wantBorder && !plain
+          ? {
+              width: pick(rng, [0.03, 0.04, 0.05]),
+              color: ingredients.contentColor ?? (light ? darken(color2, 0.35) : '#ffffff'),
+            }
+          : { width: 0, color: '#ffffff' },
+      gloss: plain ? false : (ingredients.gloss ?? rng() < 0.3),
+      shadow:
+        ingredients.glow && !plain
+          ? { enabled: true, blur: 0.08, opacity: 0.6, dx: 0, dy: 0, color: color1 }
+          : {
+              ...DEFAULT_BACKGROUND.shadow,
+              enabled: plain ? false : (ingredients.shadow ?? rng() < 0.25),
+            },
+    },
+    layers: [
+      makeLayer(layerContent, {
+        id: 'a0',
+        transform: {
+          ...DEFAULT_TRANSFORM,
+          scale: plain ? 1.3 : content.kind === 'text' ? 1 : pick(rng, [0.95, 1, 1.05, 1.1]),
+        },
+        // A neon look means the mark itself glows, not just the plate behind it.
+        effects: {
+          glow:
+            ingredients.glow && !plain
+              ? { color: foreground, blur: 0.06, opacity: 0.75 }
+              : null,
+          tint: null,
+          outline: null,
+        },
+      }),
+    ],
+  };
   return sanitizeIcon(icon);
 }
 
 function fillLabel(fill: FillType): string {
-  return fill === 'solid' ? 'solid' : fill === 'radial' ? 'radial' : 'gradient';
+  if (fill === 'solid') return 'solid';
+  if (fill === 'radial') return 'radial';
+  if (fill === 'conic') return 'colour sweep';
+  return 'gradient';
 }
 
-function describe(parsed: ParsedPrompt, ingredients: Ingredients, count: number): string {
+function shuffle<T>(items: readonly T[], rng: () => number): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const a = out[i];
+    const b = out[j];
+    if (a !== undefined && b !== undefined) {
+      out[i] = b;
+      out[j] = a;
+    }
+  }
+  return out;
+}
+
+function describe(
+  parsed: ParsedPrompt,
+  ingredients: Ingredients,
+  count: number,
+  roleName: string | null,
+  round: number,
+): string {
   const parts: string[] = [];
   const { theme, styles, generic } = ingredients;
   if (parsed.emoji) parts.push(`I used your ${parsed.emoji} as the icon.`);
   else if (parsed.text) parts.push(`I put “${parsed.text}” on it in a few fonts.`);
   if (theme) {
-    parts.push(`For ${theme.label.toLowerCase()} I picked ${theme.reason}.`);
+    parts.push(`I picked ${theme.reason}.`);
   } else if (parsed.emojiWords.length > 0 && !parsed.emoji && !parsed.text) {
     const words = parsed.emojiWords.map((w) => w.word).join(', ');
     const emoji = parsed.emojiWords.map((w) => w.emoji[0] ?? '').join(' ');
@@ -303,9 +391,12 @@ function describe(parsed: ParsedPrompt, ingredients: Ingredients, count: number)
   if (parsed.shape) parts.push(`Shape: ${SHAPE_LABELS[parsed.shape].toLowerCase()}.`);
 
   const recognised = parts.length > 0;
+  const more = round > 0 ? ' more' : '';
   const intro = generic && !recognised
-    ? "I couldn't tell what the role is about, so here are a few all-rounders."
-    : `Here are ${count} ideas.`;
+    ? `I couldn't tell what the role is about, so here are a few${more} all-rounders.`
+    : roleName
+      ? `Here are ${count}${more} ideas for ${roleName}.`
+      : `Here are ${count}${more} ideas.`;
   const outro = generic && !recognised
     ? 'Try naming the role (admin, artist, gamer…), a color, a mood, or paste an emoji.'
     : 'Click one to load it, then tweak anything.';
@@ -315,15 +406,40 @@ function describe(parsed: ParsedPrompt, ingredients: Ingredients, count: number)
 /** Turns a description into several complete icon designs. Same prompt and seed give the same ideas. */
 export function generateIdeas(prompt: string, seed = 0, count = 6): AssistantResult {
   const parsed = parsePrompt(prompt);
+  const chat = smallTalk(prompt, parsed);
+  if (chat) return { reply: chat, ideas: [], parsed, understood: false };
   const ingredients = buildIngredients(parsed);
-  const { contents, palettes, shapes, fills } = ingredients;
   const base = hashString(prompt.trim().toLowerCase());
-  const firstWord = parsed.emojiWords[0]?.word;
+  let { contents, palettes, shapes, fills } = ingredients;
+  if (seed > 0) {
+    // Later rounds reshuffle everything and widen the pools, so "More ideas" really are more.
+    const mix = mulberry32((base ^ Math.imul(seed, 0x27d4eb2f)) >>> 0);
+    contents = shuffle(contents, mix);
+    if (!parsed.shape) shapes = shuffle(dedupe([...shapes, ...GENERIC_SHAPES]), mix);
+    if (parsed.colors.length === 0 && !parsed.contentColor) {
+      palettes = shuffle(dedupe([...palettes, ...GENERIC_PALETTES]), mix);
+    } else {
+      palettes = shuffle(palettes, mix);
+    }
+    if (!parsed.flags.fill) fills = shuffle(['linear', 'radial', 'solid', 'linear'], mix);
+  }
+  const firstWord = parsed.emojiWords[0];
   const themeScore = parsed.themes[0]?.score ?? 0;
+  const shortPrompt =
+    parsed.tokens.length <= 3 &&
+    parsed.boundaries.size === 0 &&
+    (ingredients.theme !== null || firstWord?.source === 'curated') &&
+    !parsed.text &&
+    !parsed.emoji
+      ? parsed.tokens.filter((t) => !COLOR_WORDS[t] && !STOP_WORDS.has(t))
+      : [];
   const roleName =
-    firstWord && themeScore <= 1 && !parsed.text
-      ? capitalize(firstWord)
-      : (ingredients.theme?.label ?? parsed.text ?? null);
+    parsed.roleName ??
+    (shortPrompt.length > 0
+      ? shortPrompt.map(capitalize).join(' ')
+      : firstWord && (firstWord.source === 'curated' || !ingredients.theme) && themeScore <= 1 && !parsed.text
+        ? capitalize(firstWord.word)
+        : (ingredients.theme?.label ?? parsed.text ?? null));
   const ideas: Idea[] = [];
   const seen = new Set<string>();
 
@@ -360,5 +476,5 @@ export function generateIdeas(prompt: string, seed = 0, count = 6): AssistantRes
     parsed.shape !== null ||
     parsed.text !== null ||
     parsed.emoji !== null;
-  return { reply: describe(parsed, ingredients, ideas.length), ideas, parsed, understood: recognised };
+  return { reply: describe(parsed, ingredients, ideas.length, roleName, seed), ideas, parsed, understood: recognised };
 }

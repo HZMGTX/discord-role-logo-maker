@@ -1,5 +1,6 @@
-import { useId } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { FONTS, FONT_WEIGHTS, RANGES, fontById, type Content, type FontId, type FontWeight } from '../../model/types';
+import { isValidFontName } from '../../model/types';
 import { ColorField } from '../controls/ColorField';
 import { Field } from '../controls/Field';
 import { Segmented } from '../controls/Segmented';
@@ -51,9 +52,11 @@ export function TextControls({ content, patch }: TextControlsProps) {
         onChange={(value) =>
           patch((c) => {
             c.font = value;
+            c.customFont = null;
           })
         }
       />
+      <CustomFontField content={content} patch={patch} />
       {weightOptions.length > 1 && (
         <Segmented
           label="Weight"
@@ -87,7 +90,7 @@ export function TextControls({ content, patch }: TextControlsProps) {
         }
       />
       <Toggle
-        label="Outline"
+        label="Letter outline"
         checked={content.stroke !== null}
         onChange={(checked) =>
           patch((c) => {
@@ -98,7 +101,7 @@ export function TextControls({ content, patch }: TextControlsProps) {
       {content.stroke && (
         <>
           <Slider
-            label="Outline width"
+            label="Letter outline width"
             value={content.stroke.width}
             range={RANGES.strokeWidth}
             format={percent}
@@ -109,7 +112,7 @@ export function TextControls({ content, patch }: TextControlsProps) {
             }
           />
           <ColorField
-            label="Outline color"
+            label="Letter outline color"
             value={content.stroke.color}
             onChange={(hex) =>
               patch((c) => {
@@ -120,5 +123,55 @@ export function TextControls({ content, patch }: TextControlsProps) {
         </>
       )}
     </>
+  );
+}
+
+interface CustomFontFieldProps {
+  content: TextContent;
+  patch: (mutate: (content: TextContent) => void) => void;
+}
+
+/** Lets the user name any Google Font instead of picking from the list. */
+function CustomFontField({ content, patch }: CustomFontFieldProps) {
+  const id = useId();
+  const [draft, setDraft] = useState(content.customFont ?? '');
+
+  useEffect(() => {
+    setDraft(content.customFont ?? '');
+  }, [content.customFont]);
+
+  const commit = () => {
+    const name = draft.trim();
+    if (!name) {
+      patch((c) => {
+        c.customFont = null;
+      });
+      return;
+    }
+    if (isValidFontName(name)) {
+      patch((c) => {
+        c.customFont = name;
+      });
+    } else {
+      setDraft(content.customFont ?? '');
+    }
+  };
+
+  return (
+    <Field label="Or any Google Font" htmlFor={id} value={content.customFont ? 'in use' : undefined}>
+      <input
+        id={id}
+        className="input"
+        placeholder="e.g. Comic Neue, Orbitron, Rampart One"
+        value={draft}
+        maxLength={40}
+        spellCheck={false}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') commit();
+        }}
+      />
+    </Field>
   );
 }

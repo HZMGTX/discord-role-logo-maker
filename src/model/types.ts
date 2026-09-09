@@ -9,6 +9,8 @@ export const SHAPES = [
   'star',
   'heart',
   'badge',
+  'polygon',
+  'burst',
   'none',
 ] as const;
 export type ShapeKind = (typeof SHAPES)[number];
@@ -24,18 +26,42 @@ export const SHAPE_LABELS: Record<ShapeKind, string> = {
   star: 'Star',
   heart: 'Heart',
   badge: 'Badge',
+  polygon: 'Polygon',
+  burst: 'Burst',
   none: 'None',
 };
 
-export const FILL_TYPES = ['solid', 'linear', 'radial'] as const;
+export const FILL_TYPES = ['solid', 'linear', 'radial', 'conic'] as const;
 export type FillType = (typeof FILL_TYPES)[number];
+
+/** One extra color between a fill's two end colors. */
+export interface FillStop {
+  /** Position along the gradient, 0..1. */
+  offset: number;
+  color: string;
+}
+
+/** As many stops as a gradient may carry between its two end colors. */
+export const MAX_FILL_STOPS = 6;
 
 export interface Fill {
   type: FillType;
+  /** The color at offset 0. */
   color1: string;
+  /** The color at offset 1. */
   color2: string;
   /** Degrees, CSS convention: 0 = bottom to top, 90 = left to right. */
   angle: number;
+  /**
+   * Extra colors between `color1` and `color2`. Empty means a plain two-color
+   * gradient, which is what every fill written by an earlier build decodes to.
+   */
+  stops: FillStop[];
+  /** Center of a radial or conic gradient, as a fraction of the shape box. */
+  cx: number;
+  cy: number;
+  /** Radius of a radial gradient, as a fraction of the shape box. */
+  radius: number;
 }
 
 export interface Border {
@@ -63,6 +89,8 @@ export interface Transform {
   /** Degrees. */
   rotation: number;
   opacity: number;
+  flipX: boolean;
+  flipY: boolean;
 }
 
 export const FONTS = [
@@ -79,6 +107,13 @@ export const FONTS = [
 export type FontId = (typeof FONTS)[number]['id'];
 export type FontWeight = 400 | 700 | 900;
 export const FONT_WEIGHTS: readonly FontWeight[] = [400, 700, 900];
+
+/** Font family names are put into a CSS font shorthand and a URL, so keep them plain. */
+export const FONT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 '-]{0,39}$/;
+
+export function isValidFontName(name: string): boolean {
+  return FONT_NAME_PATTERN.test(name.trim());
+}
 
 export function fontById(id: FontId): (typeof FONTS)[number] {
   return FONTS.find((f) => f.id === id) ?? FONTS[0];
@@ -115,6 +150,8 @@ export type Content =
       kind: 'text';
       text: string;
       font: FontId;
+      /** Any Google Font family name, loaded on demand; overrides `font` when set. */
+      customFont: string | null;
       weight: FontWeight;
       color: string;
       /** Fraction of the font size. */
@@ -123,24 +160,153 @@ export type Content =
       shadow: boolean;
     }
   | { kind: 'symbol'; symbol: SymbolId; color: string; shadow: boolean }
-  | { kind: 'image'; src: string | null; fit: ImageFit; clip: boolean }
+  | { kind: 'image'; src: string | null; fit: ImageFit }
+  | {
+      kind: 'shape';
+      shape: ShapeKind;
+      sides: number;
+      innerRatio: number;
+      rotation: number;
+      cornerRadius: number;
+      fill: Fill;
+      border: Border;
+      shadow: boolean;
+    }
   | { kind: 'none' };
 
 export type ContentKind = Content['kind'];
-export const CONTENT_KINDS: readonly ContentKind[] = ['emoji', 'text', 'symbol', 'image', 'none'];
+export const CONTENT_KINDS: readonly ContentKind[] = [
+  'emoji',
+  'text',
+  'symbol',
+  'shape',
+  'image',
+  'none',
+];
 
-export interface IconState {
-  v: 1;
+export const CONTENT_KIND_LABELS: Record<ContentKind, string> = {
+  emoji: 'Emoji',
+  text: 'Text',
+  symbol: 'Symbol',
+  shape: 'Shape',
+  image: 'Image',
+  none: 'Empty',
+};
+
+/** Canvas composite operations, exposed as per-layer blend modes. */
+export const BLEND_MODES = [
+  'normal',
+  'erase',
+  'stencil',
+  'multiply',
+  'screen',
+  'overlay',
+  'darken',
+  'lighten',
+  'color-dodge',
+  'color-burn',
+  'hard-light',
+  'soft-light',
+  'difference',
+  'exclusion',
+  'hue',
+  'saturation',
+  'color',
+  'luminosity',
+] as const;
+export type BlendMode = (typeof BLEND_MODES)[number];
+
+const COMPOSITE_ALIASES: Partial<Record<BlendMode, GlobalCompositeOperation>> = {
+  normal: 'source-over',
+  erase: 'destination-out',
+  stencil: 'destination-in',
+};
+
+export function blendToComposite(mode: BlendMode): GlobalCompositeOperation {
+  return COMPOSITE_ALIASES[mode] ?? (mode as GlobalCompositeOperation);
+}
+
+/**
+ * Erase and stencil remove pixels that are already on the canvas, so the
+ * renderer always confines them to the icon silhouette. Anywhere else they
+ * would eat the whole canvas.
+ */
+export function isDestructive(mode: BlendMode): boolean {
+  return mode === 'erase' || mode === 'stencil';
+}
+
+export const BLEND_LABELS: Partial<Record<BlendMode, string>> = {
+  normal: 'Normal',
+  erase: 'Erase',
+  stencil: 'Stencil',
+  'color-dodge': 'Color dodge',
+  'color-burn': 'Color burn',
+  'hard-light': 'Hard light',
+  'soft-light': 'Soft light',
+};
+
+/** Effects that work on any layer, whatever its content is. */
+export interface LayerEffects {
+  /** A colored halo spreading outwards from the layer. */
+  glow: { color: string; blur: number; opacity: number } | null;
+  /** Washes a color over the layer, keeping its silhouette. */
+  tint: { color: string; amount: number } | null;
+  /** A line traced around the layer's silhouette. */
+  outline: { width: number; color: string } | null;
+}
+
+export const NO_EFFECTS: LayerEffects = { glow: null, tint: null, outline: null };
+
+export function hasEffects(effects: LayerEffects): boolean {
+  return effects.glow !== null || effects.tint !== null || effects.outline !== null;
+}
+
+/** One item in the stack. An icon can hold as many as the user wants. */
+export interface Layer {
+  id: string;
+  /** User-facing name; empty means "derive it from the content". */
+  name: string;
+  hidden: boolean;
+  locked: boolean;
+  content: Content;
+  transform: Transform;
+  blend: BlendMode;
+  /** Clip this layer to the background silhouette. */
+  clip: boolean;
+  /**
+   * Also clip this layer to another layer's silhouette, by id. The mask layer
+   * contributes only its shape: its own effects, blend and clipping are
+   * ignored, so two layers may reference each other without looping.
+   */
+  clipTo: string | null;
+  effects: LayerEffects;
+}
+
+/** The plate every role icon sits on. It also defines the clipping silhouette. */
+export interface Background {
   shape: ShapeKind;
   /** Corner radius for the rounded square, as a fraction of the shape size (0..0.5). */
   cornerRadius: number;
+  /** Sides for `polygon`, points for `burst`. */
+  sides: number;
+  /** Spike depth for `burst`, 0..1. */
+  innerRatio: number;
+  /** Rotation of the silhouette itself, in degrees. */
+  rotation: number;
   fill: Fill;
   border: Border;
   shadow: Shadow;
   gloss: boolean;
-  content: Content;
-  transform: Transform;
 }
+
+export interface IconState {
+  v: 2;
+  background: Background;
+  /** Bottom to top. Empty means just the background plate. */
+  layers: Layer[];
+}
+
+export const MAX_LAYERS = 24;
 
 export interface PreviewSettings {
   username: string;
@@ -186,12 +352,23 @@ export const RANGES = {
   shadowBlur: { min: 0, max: 0.08, step: 0.005 },
   shadowOpacity: { min: 0, max: 1, step: 0.05 },
   shadowOffset: { min: -0.06, max: 0.06, step: 0.005 },
-  scale: { min: 0.2, max: 1.5, step: 0.01 },
-  offset: { min: -0.5, max: 0.5, step: 0.01 },
+  scale: { min: 0.05, max: 3, step: 0.01 },
+  offset: { min: -1, max: 1, step: 0.01 },
   rotation: { min: -180, max: 180, step: 1 },
   opacity: { min: 0, max: 1, step: 0.01 },
   letterSpacing: { min: -0.1, max: 0.3, step: 0.01 },
   strokeWidth: { min: 0, max: 0.3, step: 0.01 },
+  sides: { min: 3, max: 24, step: 1 },
+  layerStrokeWidth: { min: 0, max: 0.3, step: 0.01 },
+  innerRatio: { min: 0.2, max: 0.95, step: 0.01 },
+  shapeRotation: { min: -180, max: 180, step: 1 },
+  stopOffset: { min: 0, max: 1, step: 0.01 },
+  fillCenter: { min: -0.5, max: 0.5, step: 0.01 },
+  fillRadius: { min: 0.1, max: 1.5, step: 0.01 },
+  glowBlur: { min: 0.005, max: 0.2, step: 0.005 },
+  glowOpacity: { min: 0.05, max: 1, step: 0.05 },
+  outlineWidth: { min: 0.002, max: 0.12, step: 0.002 },
+  tintAmount: { min: 0.05, max: 1, step: 0.05 },
 } as const satisfies Record<string, Range>;
 
 export const EXPORT_SIZES = [64, 128, 256, 512] as const;

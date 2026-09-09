@@ -13,18 +13,23 @@ import {
   type Style,
   type Theme,
 } from './lexicon';
-import { stripPlural, tokenize } from './tokenize';
+import { EMOJI_KEYWORDS } from '../emoji/keywords';
+import { sameWord, stripPlural, tokenize, wordForms } from './tokenize';
 
 export interface ThemeMatch {
   theme: Theme;
   score: number;
   position: number;
+  /** Token indices the theme's keywords matched. */
+  positions: number[];
 }
 
 export interface EmojiWordMatch {
   word: string;
   emoji: readonly string[];
   position: number;
+  /** Curated words are strong signals; Unicode annotation words are a broad fallback. */
+  source: 'curated' | 'unicode';
 }
 
 export interface ColorMatch {
@@ -45,6 +50,9 @@ export interface PromptFlags {
 export interface ParsedPrompt {
   raw: string;
   tokens: string[];
+  boundaries: ReadonlySet<number>;
+  /** A role name taken from the prompt itself ("for the staff manager role" -> "Staff Manager"). */
+  roleName: string | null;
   /** Background colors, in the order they were mentioned. */
   colors: ColorMatch[];
   /** A color the user tied to the icon itself ("white text", "gold crown on blue"). */
@@ -58,22 +66,54 @@ export interface ParsedPrompt {
   flags: PromptFlags;
 }
 
-const NEGATIONS = new Set(['no', 'without', 'not', 'dont', 'never', 'remove', 'less', 'minus']);
-const FILLERS = new Set(['a', 'an', 'the', 'any', 'some']);
+/** Negate the noun phrase right after them: "no border", "without any shadow". */
+const NOUN_NEGATIONS = new Set(['no', 'without', 'minus', 'remove', 'less', 'instead']);
+/** Negate the rest of the clause: "don't make it use emoji". */
+const CLAUSE_NEGATIONS = new Set([
+  'dont', 'doesnt', 'didnt', 'wont', 'cant', 'cannot', 'not', 'never', 'avoid', 'stop', 'skip', 'nothing',
+]);
+const CLAUSE_BREAKERS = new Set(['but', 'and', 'then', 'also', 'plus', 'however', 'except', 'while']);
 const TEXT_MARKERS = new Set([
   'initial', 'initials', 'letter', 'letters', 'text', 'word', 'label', 'number', 'abbreviation',
   'abbr', 'acronym', 'saying', 'says', 'reads', 'labeled', 'labelled', 'written', 'writing',
 ]);
 const NOT_TEXT = new Set(['color', 'colour', 'colors', 'colours', 'colored', 'coloured', 'size', 'style', 'font']);
+const ROLE_FILLERS = new Set([
+  'a', 'an', 'the', 'my', 'our', 'this', 'that', 'new', 'icon', 'icons', 'logo', 'logos', 'role', 'roles',
+  'server', 'discord', 'some', 'something', 'please', 'pls', 'nice', 'good', 'great', 'awesome', 'simple',
+  'custom', 'own', 'people', 'members', 'users', 'folks', 'everyone', 'those', 'anyone', 'someone', 'all',
+  'me', 'us', 'them', 'it', 'one', 'ones', 'guys',
+]);
+const ROLE_PATTERNS: readonly RegExp[] = [
+  /\broles?\s+(?:called|named)\s+(.+?)(?=[,.;!?]|$)/i,
+  /\b(?:for|as)\s+(?:the\s+|a\s+|an\s+|my\s+|our\s+)?(.+?)\s+roles?\b/i,
+  /\b(?:for|as)\s+(?:the\s+|a\s+|an\s+|my\s+|our\s+)?(.+?)(?=[,.;!?]|\s+(?:that|which|who|with|in|on|and|but|so)\b|$)/i,
+];
+
+function titleCase(words: readonly string[]): string {
+  return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+/** Pulls the role's name out of phrases like "for the staff manager role" or "icon for the artists". */
+export function extractRoleName(raw: string): string | null {
+  const text = raw.replace(/["“”]/g, ' ').trim();
+  for (const pattern of ROLE_PATTERNS) {
+    const match = pattern.exec(text);
+    const phrase = match?.[1];
+    if (!phrase) continue;
+    const words = phrase
+      .toLowerCase()
+      .split(/[^a-z0-9'-]+/)
+      .filter((w) => w && !ROLE_FILLERS.has(w) && !COLOR_WORDS[w] && !COLOR_MODIFIERS[w]);
+    if (words.length === 0 || words.length > 3) continue;
+    return titleCase(words);
+  }
+  return null;
+}
 const CONTENT_WORDS = new Set([
   'text', 'letters', 'letter', 'initials', 'initial', 'symbol', 'emoji', 'glyph', 'foreground',
   'font', 'number', 'word', 'crown', 'star', 'heart', 'skull', 'gem',
 ]);
-
-export function sameWord(a: string | undefined, b: string | undefined): boolean {
-  if (!a || !b) return false;
-  return a === b || stripPlural(a) === stripPlural(b);
-}
 
 /** Index of the first occurrence of a (possibly multi-word) keyword, or -1. */
 export function findKeyword(
@@ -84,25 +124,49 @@ export function findKeyword(
   const parts = keyword.toLowerCase().split(' ');
   outer: for (let i = 0; i + parts.length <= tokens.length; i++) {
     for (let j = 0; j < parts.length; j++) {
-      if (consumed.has(i + j) || !sameWord(tokens[i + j], parts[j])) continue outer;
+      const token = tokens[i + j];
+      if (consumed.has(i + j) || !token) continue outer;
+      // Stop words never stand in for a keyword ("make" must not match "maker").
+      if (token !== parts[j] && STOP_WORDS.has(token)) continue outer;
+      if (!sameWord(token, parts[j])) continue outer;
     }
     return i;
   }
   return -1;
 }
 
-export function isNegated(tokens: readonly string[], index: number): boolean {
-  const prev = tokens[index - 1];
-  if (prev && NEGATIONS.has(prev)) return true;
-  const prev2 = tokens[index - 2];
-  return !!prev && !!prev2 && FILLERS.has(prev) && NEGATIONS.has(prev2);
+/**
+ * Whether the word at `index` sits inside a negation. A clause negation
+ * ("don't", "never") reaches back up to six words; a noun negation ("no",
+ * "without") only three. Both stop at a clause boundary or a conjunction.
+ */
+export function isNegated(
+  tokens: readonly string[],
+  index: number,
+  boundaries: ReadonlySet<number> = new Set(),
+): boolean {
+  for (let back = 1; back <= 6; back++) {
+    const i = index - back;
+    if (i < 0) return false;
+    if (boundaries.has(i + 1)) return false;
+    const word = tokens[i] ?? '';
+    if (CLAUSE_BREAKERS.has(word)) return false;
+    if (CLAUSE_NEGATIONS.has(word)) return true;
+    if (NOUN_NEGATIONS.has(word)) return back <= 3;
+  }
+  return false;
 }
 
-function parseColors(tokens: readonly string[], hexes: readonly string[], consumed: Set<number>): ColorMatch[] {
+function parseColors(
+  tokens: readonly string[],
+  hexes: readonly string[],
+  consumed: Set<number>,
+  boundaries: ReadonlySet<number>,
+): ColorMatch[] {
   const colors: ColorMatch[] = hexes.map((hex) => ({ hex, name: hex, position: -1 }));
   tokens.forEach((token, i) => {
     const base = COLOR_WORDS[token];
-    if (!base || isNegated(tokens, i)) return;
+    if (!base || isNegated(tokens, i, boundaries)) return;
     consumed.add(i);
     const prev = tokens[i - 1];
     const modifier = prev !== undefined ? COLOR_MODIFIERS[prev] : undefined;
@@ -154,10 +218,14 @@ function splitContentColor(
   return { colors: colors.filter((_, i) => i !== contentIndex), contentColor };
 }
 
-function parseShape(tokens: readonly string[], consumed: Set<number>): ShapeKind | null {
+function parseShape(
+  tokens: readonly string[],
+  consumed: Set<number>,
+  boundaries: ReadonlySet<number>,
+): ShapeKind | null {
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i] ?? '';
-    if (isNegated(tokens, i)) continue;
+    if (isNegated(tokens, i, boundaries)) continue;
     const direct = SHAPE_WORDS[token] ?? SHAPE_WORDS[stripPlural(token)];
     if (direct) {
       consumed.add(i);
@@ -189,98 +257,164 @@ function parseText(tokens: readonly string[], quoted: readonly string[], consume
   return null;
 }
 
-function matchThemes(tokens: readonly string[], consumed: ReadonlySet<number>): ThemeMatch[] {
+function matchThemes(
+  tokens: readonly string[],
+  consumed: ReadonlySet<number>,
+  boundaries: ReadonlySet<number>,
+): ThemeMatch[] {
   const matches: ThemeMatch[] = [];
   for (const theme of THEMES) {
+    const hits = new Set<number>();
     let score = 0;
-    let position = Number.POSITIVE_INFINITY;
     for (const keyword of theme.keywords) {
       if (STOP_WORDS.has(keyword)) continue;
       const index = findKeyword(tokens, keyword, consumed);
-      if (index < 0 || isNegated(tokens, index)) continue;
-      score += keyword.includes(' ') ? 2 : 1;
-      position = Math.min(position, index);
+      if (index < 0 || isNegated(tokens, index, boundaries) || hits.has(index)) continue;
+      const span = keyword.split(' ').length;
+      for (let j = 0; j < span; j++) hits.add(index + j);
+      score += span > 1 ? 2 : 1;
     }
-    if (score > 0) matches.push({ theme, score, position });
+    if (score > 0) matches.push({ theme, score, position: Math.min(...hits), positions: [...hits] });
   }
-  return matches.sort((a, b) => b.score - a.score || a.position - b.position);
+  // Ties go to the later mention: in "staff manager" the head noun comes last.
+  return matches.sort((a, b) => b.score - a.score || b.position - a.position);
 }
 
-function matchEmojiWords(tokens: readonly string[], consumed: ReadonlySet<number>): EmojiWordMatch[] {
+/** Words from the Unicode annotations that are too vague to pick an icon from. */
+const UNICODE_SKIP = new Set([
+  'cool', 'new', 'free', 'back', 'ok', 'hot', 'top', 'open', 'right', 'sign', 'good', 'bad', 'big',
+  'small', 'high', 'low', 'off', 'on', 'end', 'start', 'stop', 'go', 'make', 'made', 'use', 'like',
+  'love', 'want', 'need', 'thing', 'things', 'one', 'two', 'three', 'ten', 'hundred', 'name', 'word',
+  'text', 'type', 'style', 'kind', 'part', 'full', 'half', 'empty', 'next', 'last', 'first', 'second',
+  'all', 'some', 'more', 'less', 'very', 'just', 'only', 'other', 'same', 'different', 'better', 'best',
+  'day', 'week', 'month', 'year', 'now', 'soon', 'late', 'early', 'old', 'young', 'long', 'short',
+  'hard', 'soft', 'fast', 'slow', 'cold', 'warm', 'wet', 'dry', 'ring', 'call', 'pin', 'post', 'mark',
+  'check', 'cross', 'point', 'line', 'shape', 'colour', 'color', 'fill', 'border', 'shadow', 'icon',
+  'role', 'server', 'chat', 'member', 'members', 'people', 'person', 'thanks', 'please', 'hello',
+]);
+
+function lookupUnicode(tokens: readonly string[], index: number): { key: string; emoji: readonly string[] } | null {
+  const token = tokens[index] ?? '';
+  const next = tokens[index + 1];
+  if (next) {
+    const phrase = `${token} ${next}`;
+    const hit = EMOJI_KEYWORDS[phrase];
+    if (hit) return { key: phrase, emoji: hit };
+  }
+  if (UNICODE_SKIP.has(token) || token.length < 3) return null;
+  for (const form of wordForms(token)) {
+    const hit = EMOJI_KEYWORDS[form];
+    if (hit && !UNICODE_SKIP.has(form)) return { key: form, emoji: hit };
+  }
+  return null;
+}
+
+function matchEmojiWords(
+  tokens: readonly string[],
+  consumed: ReadonlySet<number>,
+  boundaries: ReadonlySet<number>,
+  themed: ReadonlySet<number>,
+): EmojiWordMatch[] {
   const matches: EmojiWordMatch[] = [];
   tokens.forEach((token, i) => {
-    if (consumed.has(i) || STOP_WORDS.has(token) || COLOR_WORDS[token] || isNegated(tokens, i)) return;
-    const key = EMOJI_WORDS[token] ? token : EMOJI_WORDS[stripPlural(token)] ? stripPlural(token) : null;
-    const emoji = key ? EMOJI_WORDS[key] : undefined;
-    if (!key || !emoji || matches.some((m) => m.word === key)) return;
-    matches.push({ word: key, emoji, position: i });
+    if (consumed.has(i) || STOP_WORDS.has(token) || COLOR_WORDS[token] || isNegated(tokens, i, boundaries)) return;
+    const curatedKey = EMOJI_WORDS[token] ? token : EMOJI_WORDS[stripPlural(token)] ? stripPlural(token) : null;
+    const curated = curatedKey ? EMOJI_WORDS[curatedKey] : undefined;
+    if (curatedKey && curated) {
+      if (!matches.some((m) => m.word === curatedKey)) {
+        matches.push({ word: curatedKey, emoji: curated, position: i, source: 'curated' });
+      }
+      return;
+    }
+    if (themed.has(i)) return;
+    const unicode = lookupUnicode(tokens, i);
+    if (unicode && !matches.some((m) => m.word === unicode.key)) {
+      matches.push({ word: unicode.key, emoji: unicode.emoji.slice(0, 3), position: i, source: 'unicode' });
+    }
   });
   return matches;
 }
 
-function matchStyles(tokens: readonly string[], consumed: ReadonlySet<number>): Style[] {
+function matchStyles(
+  tokens: readonly string[],
+  consumed: ReadonlySet<number>,
+  boundaries: ReadonlySet<number>,
+): Style[] {
   const found: Array<{ style: Style; position: number }> = [];
   for (const style of STYLES) {
     let position = Number.POSITIVE_INFINITY;
     for (const keyword of style.keywords) {
       if (STOP_WORDS.has(keyword)) continue;
       const index = findKeyword(tokens, keyword, consumed);
-      if (index >= 0 && !isNegated(tokens, index)) position = Math.min(position, index);
+      if (index >= 0 && !isNegated(tokens, index, boundaries)) position = Math.min(position, index);
     }
     if (position !== Number.POSITIVE_INFINITY) found.push({ style, position });
   }
   return found.sort((a, b) => a.position - b.position).map((f) => f.style);
 }
 
-function flag(tokens: readonly string[], words: readonly string[]): boolean | undefined {
-  for (const word of words) {
-    const index = findKeyword(tokens, word);
-    if (index >= 0) return !isNegated(tokens, index);
-  }
-  return undefined;
-}
-
-function parseFlags(tokens: readonly string[], text: string | null): PromptFlags {
+function parseFlags(
+  tokens: readonly string[],
+  text: string | null,
+  boundaries: ReadonlySet<number>,
+): PromptFlags {
+  const flag = (words: readonly string[]): boolean | undefined => {
+    for (const word of words) {
+      const index = findKeyword(tokens, word);
+      if (index >= 0) return !isNegated(tokens, index, boundaries);
+    }
+    return undefined;
+  };
   const flags: PromptFlags = {};
-  const border = flag(tokens, ['border', 'outline', 'ring', 'stroke', 'edge']);
+  const border = flag(['border', 'outline', 'ring', 'stroke', 'edge']);
   if (border !== undefined) flags.border = border;
-  const shadow = flag(tokens, ['shadow', 'shadows', 'drop shadow']);
+  const shadow = flag(['shadow', 'shadows', 'drop shadow']);
   if (shadow !== undefined) flags.shadow = shadow;
-  const gloss = flag(tokens, ['glossy', 'gloss', 'shiny', 'shine', 'gleam', 'glass']);
+  const gloss = flag(['glossy', 'gloss', 'shiny', 'shine', 'gleam', 'glass']);
   if (gloss !== undefined) flags.gloss = gloss;
-  else if (flag(tokens, ['flat', 'matte']) === true) flags.gloss = false;
+  else if (flag(['flat', 'matte']) === true) flags.gloss = false;
   if (
-    flag(tokens, ['transparent', 'no background', 'without background', 'without a background']) === true ||
+    flag(['transparent', 'no background', 'without background', 'without a background']) === true ||
     findKeyword(tokens, 'no background') >= 0
   ) {
     flags.transparent = true;
   }
-  if (flag(tokens, ['solid']) === true) flags.fill = 'solid';
-  else if (flag(tokens, ['radial']) === true) flags.fill = 'radial';
-  else if (flag(tokens, ['gradient']) === true) flags.fill = 'linear';
+  if (flag(['solid']) === true) flags.fill = 'solid';
+  else if (flag(['conic', 'sweep', 'wheel', 'rainbow']) === true) flags.fill = 'conic';
+  else if (flag(['radial']) === true) flags.fill = 'radial';
+  else if (flag(['gradient']) === true) flags.fill = 'linear';
+  const emoji = flag(['emoji', 'emojis']);
+  const symbol = flag(['symbol', 'symbols', 'glyph', 'silhouette', 'drawn']);
   if (text) flags.prefer = 'text';
-  else if (flag(tokens, ['emoji', 'emojis']) === true) flags.prefer = 'emoji';
-  else if (flag(tokens, ['symbol', 'symbols', 'glyph', 'silhouette']) === true) flags.prefer = 'symbol';
+  else if (emoji === true || symbol === false) flags.prefer = 'emoji';
+  else if (symbol === true || emoji === false) flags.prefer = 'symbol';
   return flags;
 }
 
 /** Turns a free-text description into everything the generator needs. */
 export function parsePrompt(input: string): ParsedPrompt {
-  const { raw, tokens, quoted, hexes, emoji } = tokenize(input);
+  const { raw, tokens, quoted, hexes, emoji, boundaries } = tokenize(input);
   const consumed = new Set<number>();
-  const { colors, contentColor } = splitContentColor(tokens, parseColors(tokens, hexes, consumed));
-  let shape = parseShape(tokens, consumed);
+  const { colors, contentColor } = splitContentColor(
+    tokens,
+    parseColors(tokens, hexes, consumed, boundaries),
+  );
+  let shape = parseShape(tokens, consumed, boundaries);
   const text = parseText(tokens, quoted, consumed);
-  const flags = parseFlags(tokens, text);
+  const flags = parseFlags(tokens, text, boundaries);
   if (flags.transparent) shape = 'none';
+  const themes = matchThemes(tokens, consumed, boundaries);
+  const themed = new Set(themes.flatMap((t) => t.positions));
   return {
     raw,
     tokens,
+    boundaries,
+    roleName: extractRoleName(raw),
     colors,
     contentColor,
-    themes: matchThemes(tokens, consumed),
-    emojiWords: matchEmojiWords(tokens, consumed),
-    styles: matchStyles(tokens, consumed),
+    themes,
+    emojiWords: matchEmojiWords(tokens, consumed, boundaries, themed),
+    styles: matchStyles(tokens, consumed, boundaries),
     shape,
     text,
     emoji: emoji[0] ?? null,

@@ -1,7 +1,8 @@
 import { twemojiUrl } from '../emoji/twemoji';
 import { fontById, type Content, type FontWeight } from '../model/types';
+import { makeFill } from './fills';
 import { resources } from './resources';
-import type { Box } from './shapes';
+import { shapePath, type Box } from './shapes';
 import { SYMBOLS, partPath } from './symbols';
 
 const EMOJI_FALLBACK_FONT =
@@ -34,6 +35,9 @@ export function drawContent(
       return drawText(ctx, content, span);
     case 'symbol':
       drawSymbol(ctx, content, span * 0.62);
+      return DONE;
+    case 'shape':
+      drawShapeContent(ctx, content, span);
       return DONE;
     case 'image':
       return drawImage(ctx, content, span);
@@ -81,10 +85,11 @@ function drawText(
 ): ContentResult {
   const text = content.text.trim();
   if (!text) return DONE;
-  const font = fontById(content.font);
-  const weight = pickWeight(font.weights, content.weight);
-  const family = `"${font.family}", sans-serif`;
-  if (!resources.ensureFont(`${weight} 32px "${font.family}"`)) {
+  const preset = fontById(content.font);
+  const familyName = content.customFont ?? preset.family;
+  const weight = content.customFont ? content.weight : pickWeight(preset.weights, content.weight);
+  const family = `"${familyName}", sans-serif`;
+  if (!resources.ensureFontFamily(familyName, weight)) {
     return { pending: true, emojiFallback: false };
   }
 
@@ -157,6 +162,32 @@ function drawSymbol(
     }
   }
   ctx.restore();
+}
+
+/** Draws a shape as content: a decorative plate, ring or accent inside the icon. */
+function drawShapeContent(
+  ctx: CanvasRenderingContext2D,
+  content: Extract<Content, { kind: 'shape' }>,
+  span: number,
+): void {
+  const box: Box = { x: -span / 2, y: -span / 2, s: span };
+  const path = shapePath(content.shape, box, {
+    cornerRadius: content.cornerRadius,
+    sides: content.sides,
+    innerRatio: content.innerRatio,
+    rotation: content.rotation,
+  });
+  if (!path) return;
+  ctx.fillStyle = makeFill(ctx, content.fill, box);
+  ctx.fill(path);
+  if (content.border.width > 0) {
+    ctx.save();
+    ctx.clip(path);
+    ctx.lineWidth = content.border.width * 2 * span;
+    ctx.strokeStyle = content.border.color;
+    ctx.stroke(path);
+    ctx.restore();
+  }
 }
 
 function drawImage(

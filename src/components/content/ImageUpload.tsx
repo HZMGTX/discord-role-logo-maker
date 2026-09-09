@@ -2,13 +2,11 @@ import { useRef, useState, type DragEvent } from 'react';
 import { imageFileToDataUrl } from '../../export/imageFile';
 import { IMAGE_FITS, type Content, type ImageFit } from '../../model/types';
 import { Segmented } from '../controls/Segmented';
-import { Toggle } from '../controls/Toggle';
 
 type ImageContent = Extract<Content, { kind: 'image' }>;
 
 interface ImageUploadProps {
   content: ImageContent;
-  hasShape: boolean;
   patch: (mutate: (content: ImageContent) => void) => void;
   notify: (message: string) => void;
 }
@@ -18,7 +16,7 @@ const FIT_OPTIONS: ReadonlyArray<{ value: ImageFit; label: string }> = IMAGE_FIT
   label: fit === 'cover' ? 'Fill' : 'Fit inside',
 }));
 
-export function ImageUpload({ content, hasShape, patch, notify }: ImageUploadProps) {
+export function ImageUpload({ content, patch, notify }: ImageUploadProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -115,17 +113,6 @@ export function ImageUpload({ content, hasShape, patch, notify }: ImageUploadPro
           })
         }
       />
-      {hasShape && (
-        <Toggle
-          label="Clip to shape"
-          checked={content.clip}
-          onChange={(checked) =>
-            patch((c) => {
-              c.clip = checked;
-            })
-          }
-        />
-      )}
     </>
   );
 }

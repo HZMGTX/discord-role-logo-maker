@@ -146,7 +146,7 @@ try {
   await settle(page);
   const fromAssistant = await previewData(page);
   assert(fromAssistant !== initial, 'the first idea is loaded into the preview');
-  assert((await page.getByLabel('Role name').inputValue()) === 'Admin', 'assistant sets the role name');
+  assert((await page.getByLabel('Role name').inputValue()) === 'Owner', 'assistant sets the role name from the prompt');
   await page.getByTestId('idea-1').click();
   await settle(page);
   const secondIdea = await previewData(page);
@@ -157,9 +157,99 @@ try {
   await settle(page);
   const tweaked = await previewData(page);
   assert(tweaked !== secondIdea, 'a tweak instruction changes the preview');
-  const shapeAfterTweak = await page.evaluate(() => JSON.parse(localStorage.getItem('role-icon-maker:v1')).icon.shape);
+  const shapeAfterTweak = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('role-icon-maker:v1')).icon.background.shape,
+  );
   assert(shapeAfterTweak === 'hexagon', `tweak changed the shape to hexagon (${shapeAfterTweak})`);
   console.log(`✓ assistant: ${ideaCount} ideas, load, tweak; screenshot saved`);
+
+  // 1c. Layers: stack a second mark on the same icon, reorder it, hide it.
+  const layerCount = () =>
+    page.evaluate(() => JSON.parse(localStorage.getItem('role-icon-maker:v1')).icon.layers.length);
+  await page.getByRole('tab', { name: 'Layers' }).click();
+  const before = await layerCount();
+  await page.getByTestId('add-layer-text').click();
+  await settle(page);
+  const after = await layerCount();
+  assert(after === before + 1, `adding a layer grew the stack (${before} -> ${after})`);
+  const stacked = await previewData(page);
+  assert(stacked !== tweaked, 'the added layer changed the preview');
+  const stackedShot = path.join(OUT, 'screenshot-layers.png');
+  await page.screenshot({ path: stackedShot, fullPage: true });
+  await page.getByRole('button', { name: /^Hide / }).first().click();
+  await settle(page);
+  assert((await previewData(page)) !== stacked, 'hiding a layer changed the preview');
+  await page.getByRole('button', { name: /^Show / }).first().click();
+  await settle(page);
+  await page.getByTestId('delete-layer').click();
+  await settle(page);
+  assert((await layerCount()) === before, 'deleting a layer restored the stack');
+  await page.getByTestId('undo').click();
+  await settle(page);
+  assert((await layerCount()) === after, 'undo brought the deleted layer back');
+  await page.getByTestId('redo').click();
+  await settle(page);
+  assert((await layerCount()) === before, 'redo removed it again');
+  console.log(`✓ layers: add, hide, delete, undo, redo (${before} -> ${after} -> ${before})`);
+
+  // 1d. Effects and destructive blending actually reach the canvas.
+  const effectsBase = await previewData(page);
+  await page.getByRole('switch', { name: 'Glow' }).click();
+  await settle(page);
+  const glowed = await previewData(page);
+  assert(glowed !== effectsBase, 'turning on the glow repainted the preview');
+  await page.getByRole('switch', { name: 'Outline', exact: true }).click();
+  await settle(page);
+  const outlined = await previewData(page);
+  assert(outlined !== glowed, 'adding an outline repainted the preview');
+  await page.getByRole('switch', { name: 'Recolor' }).click();
+  await settle(page);
+  assert((await previewData(page)) !== outlined, 'recoloring repainted the preview');
+
+  // An erase layer must take a bite out of the plate without wiping the canvas.
+  await page.getByLabel('Blend mode').selectOption('erase');
+  await settle(page);
+  const erased = await previewData(page);
+  const opaque = await page.evaluate(() => {
+    const canvas = document.querySelector('[data-testid="preview"] canvas');
+    const ctx = canvas.getContext('2d');
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let count = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 8) count += 1;
+    return count / (canvas.width * canvas.height);
+  });
+  assert(erased !== outlined, 'switching to erase repainted the preview');
+  assert(opaque > 0.1, `erase left the plate standing (${(opaque * 100).toFixed(1)}% opaque)`);
+
+  // Stencil is the dangerous one: unclipped it would wipe the whole canvas.
+  await page.getByLabel('Blend mode').selectOption('stencil');
+  await settle(page);
+  const stencilOpaque = await page.evaluate(() => {
+    const canvas = document.querySelector('[data-testid="preview"] canvas');
+    const ctx = canvas.getContext('2d');
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let count = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 8) count += 1;
+    return count / (canvas.width * canvas.height);
+  });
+  assert(stencilOpaque > 0.005, `stencil did not wipe the canvas (${(stencilOpaque * 100).toFixed(2)}% opaque)`);
+  await page.getByLabel('Blend mode').selectOption('normal');
+  await settle(page);
+  console.log(
+    `✓ effects: glow, outline, recolor; erase kept ${(opaque * 100).toFixed(0)}% and stencil ${(stencilOpaque * 100).toFixed(1)}% of the canvas`,
+  );
+
+  // 1e. A multi-stop conic gradient renders.
+  await page.getByRole('tab', { name: 'Fill' }).click();
+  const beforeFill = await previewData(page);
+  await page.getByRole('group', { name: 'Fill type' }).getByRole('button', { name: 'Conic' }).click();
+  await settle(page);
+  assert((await previewData(page)) !== beforeFill, 'a conic fill repainted the preview');
+  const conic = await previewData(page);
+  await page.getByRole('button', { name: 'Add a color' }).click();
+  await settle(page);
+  assert((await previewData(page)) !== conic, 'a third gradient color repainted the preview');
+  console.log('✓ fills: conic gradient with an extra color stop');
 
   // 2. A control change repaints the preview.
   await page.getByRole('tab', { name: 'Effects' }).click();
@@ -184,7 +274,7 @@ try {
   const file = await readFile(await download.path());
   assert(file.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), 'download is a PNG');
   assert(file.readUInt32BE(16) === 256 && file.readUInt32BE(20) === 256, 'download is 256×256');
-  assert(download.suggestedFilename() === 'role-icon-admin-256.png', `filename ${download.suggestedFilename()}`);
+  assert(download.suggestedFilename() === 'role-icon-owner-256.png', `filename ${download.suggestedFilename()}`);
   assert(file.length <= 256 * 1024, 'download is under 256 KB');
   console.log(`✓ export: ${download.suggestedFilename()} (${file.length} bytes, estimate ${estimate})`);
 
