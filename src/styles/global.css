@@ -403,6 +403,28 @@ textarea:focus-visible,
   gap: var(--s-2);
 }
 
+/* A gradient stop: its own small card so the list reads as separate colors. */
+.stop {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-raised);
+}
+
+.stop .btn {
+  align-self: flex-start;
+}
+
+/* A line of buttons that sit side by side under one label. */
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
 /* Fields & controls --------------------------------------------------------- */
 
 .field {

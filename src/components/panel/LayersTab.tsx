@@ -8,6 +8,7 @@ import {
   removeLayer,
 } from '../../model/layers';
 import {
+  BLEND_LABELS,
   BLEND_MODES,
   CONTENT_KINDS,
   CONTENT_KIND_LABELS,
@@ -43,8 +44,13 @@ const ADD_KINDS: readonly ContentKind[] = CONTENT_KINDS.filter((k) => k !== 'non
 
 const BLEND_OPTIONS: ReadonlyArray<{ value: BlendMode; label: string }> = BLEND_MODES.map((m) => ({
   value: m,
-  label: m === 'normal' ? 'Normal' : m.replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase()),
+  label: BLEND_LABELS[m] ?? m.replace(/^./, (c) => c.toUpperCase()),
 }));
+
+const BLEND_HINTS: Partial<Record<BlendMode, string>> = {
+  erase: 'Punches this layer out of everything below it.',
+  stencil: 'Keeps what is below only where this layer covers it.',
+};
 
 export function LayersTab({
   icon,
@@ -56,6 +62,14 @@ export function LayersTab({
 }: LayersTabProps) {
   const selected = findLayer(icon, selectedLayerId) ?? icon.layers[icon.layers.length - 1] ?? null;
   const selectedId = selected?.id ?? null;
+  // Any other layer can act as a mask; its shape alone is used, so a pair of
+  // layers pointing at each other is harmless.
+  const maskOptions = [
+    { value: '', label: 'No mask' },
+    ...icon.layers
+      .filter((l) => l.id !== selectedId && l.content.kind !== 'none')
+      .map((l) => ({ value: l.id, label: layerLabel(l) })),
+  ];
 
   const patchLayer = (mutate: (layer: NonNullable<typeof selected>) => void) =>
     updateIcon((draft) => {
@@ -382,6 +396,140 @@ export function LayersTab({
                 })
               }
             />
+            {BLEND_HINTS[selected.blend] && (
+              <p className="card__hint">{BLEND_HINTS[selected.blend]}</p>
+            )}
+            {maskOptions.length > 1 && (
+              <Select
+                label="Mask to layer"
+                value={selected.clipTo ?? ''}
+                options={maskOptions}
+                onChange={(value) =>
+                  patchLayer((layer) => {
+                    layer.clipTo = value === '' ? null : value;
+                  })
+                }
+              />
+            )}
+          </div>
+
+          <div className="section">
+            <h2 className="section__title">
+              Effects
+              <span className="card__hint">work on any layer, pictures included</span>
+            </h2>
+            <Toggle
+              label="Glow"
+              checked={selected.effects.glow !== null}
+              onChange={(checked) =>
+                patchLayer((layer) => {
+                  layer.effects.glow = checked
+                    ? { color: '#ffffff', blur: 0.05, opacity: 0.7 }
+                    : null;
+                })
+              }
+            />
+            {selected.effects.glow && (
+              <>
+                <ColorField
+                  label="Glow color"
+                  value={selected.effects.glow.color}
+                  onChange={(hex) =>
+                    patchLayer((layer) => {
+                      if (layer.effects.glow) layer.effects.glow.color = hex;
+                    })
+                  }
+                />
+                <Slider
+                  label="Glow size"
+                  value={selected.effects.glow.blur}
+                  range={RANGES.glowBlur}
+                  format={percent}
+                  onChange={(value) =>
+                    patchLayer((layer) => {
+                      if (layer.effects.glow) layer.effects.glow.blur = value;
+                    })
+                  }
+                />
+                <Slider
+                  label="Glow strength"
+                  value={selected.effects.glow.opacity}
+                  range={RANGES.glowOpacity}
+                  format={percent}
+                  onChange={(value) =>
+                    patchLayer((layer) => {
+                      if (layer.effects.glow) layer.effects.glow.opacity = value;
+                    })
+                  }
+                />
+              </>
+            )}
+            <Toggle
+              label="Outline"
+              checked={selected.effects.outline !== null}
+              onChange={(checked) =>
+                patchLayer((layer) => {
+                  layer.effects.outline = checked ? { width: 0.012, color: '#000000' } : null;
+                })
+              }
+            />
+            {selected.effects.outline && (
+              <>
+                <ColorField
+                  label="Outline color"
+                  value={selected.effects.outline.color}
+                  onChange={(hex) =>
+                    patchLayer((layer) => {
+                      if (layer.effects.outline) layer.effects.outline.color = hex;
+                    })
+                  }
+                />
+                <Slider
+                  label="Outline width"
+                  value={selected.effects.outline.width}
+                  range={RANGES.outlineWidth}
+                  format={percent}
+                  onChange={(value) =>
+                    patchLayer((layer) => {
+                      if (layer.effects.outline) layer.effects.outline.width = value;
+                    })
+                  }
+                />
+              </>
+            )}
+            <Toggle
+              label="Recolor"
+              checked={selected.effects.tint !== null}
+              onChange={(checked) =>
+                patchLayer((layer) => {
+                  layer.effects.tint = checked ? { color: '#ffffff', amount: 1 } : null;
+                })
+              }
+            />
+            {selected.effects.tint && (
+              <>
+                <ColorField
+                  label="Recolor to"
+                  value={selected.effects.tint.color}
+                  onChange={(hex) =>
+                    patchLayer((layer) => {
+                      if (layer.effects.tint) layer.effects.tint.color = hex;
+                    })
+                  }
+                />
+                <Slider
+                  label="Recolor strength"
+                  value={selected.effects.tint.amount}
+                  range={RANGES.tintAmount}
+                  format={percent}
+                  onChange={(value) =>
+                    patchLayer((layer) => {
+                      if (layer.effects.tint) layer.effects.tint.amount = value;
+                    })
+                  }
+                />
+              </>
+            )}
           </div>
         </>
       )}

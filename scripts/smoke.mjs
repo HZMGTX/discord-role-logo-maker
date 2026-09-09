@@ -192,6 +192,65 @@ try {
   assert((await layerCount()) === before, 'redo removed it again');
   console.log(`✓ layers: add, hide, delete, undo, redo (${before} -> ${after} -> ${before})`);
 
+  // 1d. Effects and destructive blending actually reach the canvas.
+  const effectsBase = await previewData(page);
+  await page.getByRole('switch', { name: 'Glow' }).click();
+  await settle(page);
+  const glowed = await previewData(page);
+  assert(glowed !== effectsBase, 'turning on the glow repainted the preview');
+  await page.getByRole('switch', { name: 'Outline', exact: true }).click();
+  await settle(page);
+  const outlined = await previewData(page);
+  assert(outlined !== glowed, 'adding an outline repainted the preview');
+  await page.getByRole('switch', { name: 'Recolor' }).click();
+  await settle(page);
+  assert((await previewData(page)) !== outlined, 'recoloring repainted the preview');
+
+  // An erase layer must take a bite out of the plate without wiping the canvas.
+  await page.getByLabel('Blend mode').selectOption('erase');
+  await settle(page);
+  const erased = await previewData(page);
+  const opaque = await page.evaluate(() => {
+    const canvas = document.querySelector('[data-testid="preview"] canvas');
+    const ctx = canvas.getContext('2d');
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let count = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 8) count += 1;
+    return count / (canvas.width * canvas.height);
+  });
+  assert(erased !== outlined, 'switching to erase repainted the preview');
+  assert(opaque > 0.1, `erase left the plate standing (${(opaque * 100).toFixed(1)}% opaque)`);
+
+  // Stencil is the dangerous one: unclipped it would wipe the whole canvas.
+  await page.getByLabel('Blend mode').selectOption('stencil');
+  await settle(page);
+  const stencilOpaque = await page.evaluate(() => {
+    const canvas = document.querySelector('[data-testid="preview"] canvas');
+    const ctx = canvas.getContext('2d');
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let count = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 8) count += 1;
+    return count / (canvas.width * canvas.height);
+  });
+  assert(stencilOpaque > 0.005, `stencil did not wipe the canvas (${(stencilOpaque * 100).toFixed(2)}% opaque)`);
+  await page.getByLabel('Blend mode').selectOption('normal');
+  await settle(page);
+  console.log(
+    `✓ effects: glow, outline, recolor; erase kept ${(opaque * 100).toFixed(0)}% and stencil ${(stencilOpaque * 100).toFixed(1)}% of the canvas`,
+  );
+
+  // 1e. A multi-stop conic gradient renders.
+  await page.getByRole('tab', { name: 'Fill' }).click();
+  const beforeFill = await previewData(page);
+  await page.getByRole('group', { name: 'Fill type' }).getByRole('button', { name: 'Conic' }).click();
+  await settle(page);
+  assert((await previewData(page)) !== beforeFill, 'a conic fill repainted the preview');
+  const conic = await previewData(page);
+  await page.getByRole('button', { name: 'Add a color' }).click();
+  await settle(page);
+  assert((await previewData(page)) !== conic, 'a third gradient color repainted the preview');
+  console.log('✓ fills: conic gradient with an extra color stop');
+
   // 2. A control change repaints the preview.
   await page.getByRole('tab', { name: 'Effects' }).click();
   await setRange(page, 'Width', 0.1);

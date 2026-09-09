@@ -11,7 +11,7 @@ import {
   serializePersisted,
   stripImages,
 } from './serialize';
-import { MAX_FILL_STOPS, MAX_LAYERS, type IconState } from './types';
+import { MAX_FILL_STOPS, MAX_LAYERS, RANGES, type IconState } from './types';
 
 /** An icon exactly as the previous version of the app wrote it. */
 const V1_ICON = {
@@ -248,6 +248,74 @@ describe('sanitizeIcon', () => {
     expect(fill.stops.some((s) => s.color === '#ffffff')).toBe(true);
     expect(fill.cx).toBe(-0.5);
     expect(fill.radius).toBe(1.5);
+  });
+
+  it('drops a mask that points at nothing or at itself', () => {
+    const icon = sanitizeIcon({
+      v: 2,
+      background: {},
+      layers: [
+        { id: 'a', content: { kind: 'emoji', emoji: '⭐' }, clipTo: 'a' },
+        { id: 'b', content: { kind: 'emoji', emoji: '⭐' }, clipTo: 'ghost' },
+        { id: 'c', content: { kind: 'emoji', emoji: '⭐' }, clipTo: 'a' },
+      ],
+    });
+    expect(icon.layers[0]?.clipTo).toBeNull();
+    expect(icon.layers[1]?.clipTo).toBeNull();
+    expect(icon.layers[2]?.clipTo).toBe('a');
+  });
+
+  it('keeps a mask pointing at the layer that kept the id after a rewrite', () => {
+    const icon = sanitizeIcon({
+      v: 2,
+      background: {},
+      layers: [
+        { id: 'dup', content: { kind: 'symbol', symbol: 'gem' } },
+        { id: 'dup', content: { kind: 'symbol', symbol: 'key' } },
+        { id: 'x', content: { kind: 'emoji', emoji: '⭐' }, clipTo: 'dup' },
+      ],
+    });
+    const ids = icon.layers.map((l) => l.id);
+    expect(new Set(ids).size).toBe(3);
+    expect(icon.layers[2]?.clipTo).toBe(ids[0]);
+  });
+
+  it('clamps effects and drops malformed ones', () => {
+    const icon = sanitizeIcon({
+      v: 2,
+      background: {},
+      layers: [
+        {
+          id: 'a',
+          content: { kind: 'emoji', emoji: '⭐' },
+          blend: 'erase',
+          effects: {
+            glow: { color: '#00ff00', blur: 99, opacity: -1 },
+            outline: 'yes please',
+            tint: { color: 'nope', amount: 0.5 },
+          },
+        },
+      ],
+    });
+    const layer = icon.layers[0];
+    expect(layer?.blend).toBe('erase');
+    expect(layer?.effects.glow).toEqual({
+      color: '#00ff00',
+      blur: RANGES.glowBlur.max,
+      opacity: RANGES.glowOpacity.min,
+    });
+    expect(layer?.effects.outline).toBeNull();
+    expect(layer?.effects.tint).toEqual({ color: '#ffffff', amount: 0.5 });
+  });
+
+  it('gives a design saved before effects existed no effects and no mask', () => {
+    const icon = sanitizeIcon({
+      v: 2,
+      background: {},
+      layers: [{ id: 'a', content: { kind: 'emoji', emoji: '⭐' } }],
+    });
+    expect(icon.layers[0]?.effects).toEqual({ glow: null, tint: null, outline: null });
+    expect(icon.layers[0]?.clipTo).toBeNull();
   });
 
   it('returns the defaults for non-objects', () => {

@@ -331,6 +331,15 @@ function buildIcon(
           ...DEFAULT_TRANSFORM,
           scale: plain ? 1.3 : content.kind === 'text' ? 1 : pick(rng, [0.95, 1, 1.05, 1.1]),
         },
+        // A neon look means the mark itself glows, not just the plate behind it.
+        effects: {
+          glow:
+            ingredients.glow && !plain
+              ? { color: foreground, blur: 0.06, opacity: 0.75 }
+              : null,
+          tint: null,
+          outline: null,
+        },
       }),
     ],
   };

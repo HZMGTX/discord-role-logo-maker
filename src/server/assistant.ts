@@ -56,6 +56,15 @@ const ModelLayerSchema = z.object({
   opacity: z.number().describe('0 to 1'),
   shadow: z.boolean().describe('soft drop shadow behind this layer'),
   clip: z.boolean().describe('keep this layer inside the background silhouette'),
+  glowColor: z
+    .string()
+    .describe('#rrggbb halo around this layer, for a neon look; empty for no glow'),
+  outlineColor: z
+    .string()
+    .describe('#rrggbb line traced around this layer, to lift it off a busy plate; empty for none'),
+  tintColor: z
+    .string()
+    .describe('#rrggbb to recolor this layer, which is the only way to recolor an emoji; empty to keep its own colors'),
 });
 type ModelLayer = z.infer<typeof ModelLayerSchema>;
 
@@ -68,6 +77,9 @@ const ModelIconSchema = z.object({
   fillType: z.enum(FILL_TYPES),
   color1: z.string().describe('#rrggbb'),
   color2: z.string().describe('#rrggbb second gradient color; same as color1 for solid'),
+  color3: z
+    .string()
+    .describe('#rrggbb optional third color, placed between color1 and color2; empty for a two-color blend'),
   angle: z.number().describe('gradient angle in degrees 0-360; 135 is a nice diagonal'),
   borderWidth: z.number().describe('0 for no border, 0.03-0.05 for a crisp outline'),
   borderColor: z.string().describe('#rrggbb'),
@@ -109,12 +121,13 @@ export const SYSTEM_PROMPT = `You design Discord role icons inside the "Role Ico
 
 Design space:
 - shape: circle, roundedSquare (cornerRadius 0.15-0.35), square, squircle, hexagon, shield, diamond, star, heart, badge (scalloped seal), none (transparent background, content only).
-- fill: solid, linear (angle in degrees) or radial; colors are #rrggbb hex. Pick palettes that read well at 20 px.
+- fill: solid, linear (angle in degrees), radial or conic (a colour wheel sweep from the angle). Colors are #rrggbb hex, and color3 adds a third colour in the middle of the blend. Pick palettes that read well at 20 px.
 - borderWidth 0 for none or 0.03-0.05 for a crisp outline; borderColor usually white or a tone from the fill family. shadow adds a soft drop shadow; gloss adds a glossy highlight.
 - shape also accepts polygon (3-12 sides) and burst (3-24 points with an adjustable spike depth), and the plate can be rotated.
 - layers: an ordered list drawn bottom to top over the plate. Each layer is an emoji (exactly one Unicode emoji, rendered as Twemoji), text (1-4 characters; fonts: inter = clean, rubik = rounded, bangers = comic, luckiest = playful, pressstart = pixel/retro, pacifico = script, blackops = military stencil, bebas = tall condensed, lobster = elegant script, or any Google Font by name in customFont), a symbol (drawn silhouette: crown, shield, star, heart, bolt, check, cross, gear, gem, sword, skull, note, code, flame, moon, paw, trophy, key) or a shape (a plate, ring or accent behind the main mark). Each layer has its own scale, x, y, rotation, opacity, shadow and clip.
 - Most icons want ONE layer. Stack a second or third only when it genuinely helps, for example a pale shape behind a symbol, or a small mark above short text. Keep it readable at 20 px: never more than three layers, and never overlapping two detailed marks.
 - color colors text, symbols and shape layers: white on dark fills, a dark tone on light fills. scale 0.9-1.2 is normal.
+- Each layer can also carry effects, which work on any layer including emoji and pictures: glowColor for a neon halo, outlineColor for a line traced round the mark so it survives a busy plate, and tintColor to recolor the layer, which is the only way to recolor an emoji. Leave each one empty for no effect, and use at most one per layer; a glow plus an outline at 20 px turns to mud.
 - Never put a shield on a shield shape, a star on a star shape, or a heart on a heart shape.
 - roleColor: a Discord role color that matches the design, ideally one of #1abc9c #2ecc71 #3498db #9b59b6 #e91e63 #f1c40f #e67e22 #e74c3c #95a5a6 #607d8b #11806a #1f8b4c #206694 #71368a #ad1457 #c27c0e #a84300 #992d22 #979c9f #546e7a.
 
@@ -142,6 +155,9 @@ export function checkRateLimit(key: string, now = Date.now()): boolean {
 
 const HEX = /^#[0-9a-f]{6}$/i;
 const hex = (value: string, fallback: string) => (HEX.test(value) ? value.toLowerCase() : fallback);
+/** A color the model may leave empty to mean "no effect". */
+const optionalHex = (value: string | undefined): string | null =>
+  typeof value === 'string' && HEX.test(value) ? value.toLowerCase() : null;
 
 /** Converts one flat layer description into validated layer content. */
 function toContent(model: ModelLayer): Content {
@@ -222,6 +238,18 @@ export function toIconState(model: ModelIcon, previous?: IconState): IconState {
       },
       blend: 'normal' as const,
       clip: layer.clip !== false,
+      clipTo: null,
+      effects: {
+        glow: optionalHex(layer.glowColor)
+          ? { color: optionalHex(layer.glowColor) as string, blur: 0.06, opacity: 0.75 }
+          : null,
+        outline: optionalHex(layer.outlineColor)
+          ? { width: 0.014, color: optionalHex(layer.outlineColor) as string }
+          : null,
+        tint: optionalHex(layer.tintColor)
+          ? { color: optionalHex(layer.tintColor) as string, amount: 1 }
+          : null,
+      },
     }))
     .filter((layer) => layer.content.kind !== 'none');
 
@@ -233,12 +261,15 @@ export function toIconState(model: ModelIcon, previous?: IconState): IconState {
       sides: model.sides,
       innerRatio: model.innerRatio,
       rotation: model.shapeRotation,
-      fill: {
+      fill: fillOf({
         type: model.fillType,
         color1: hex(model.color1, DEFAULT_ICON.background.fill.color1),
         color2: hex(model.color2, hex(model.color1, DEFAULT_ICON.background.fill.color2)),
         angle: model.angle,
-      },
+        stops: optionalHex(model.color3)
+          ? [{ offset: 0.5, color: optionalHex(model.color3) as string }]
+          : [],
+      }),
       border: { width: model.borderWidth, color: hex(model.borderColor, '#ffffff') },
       shadow: { ...DEFAULT_ICON.background.shadow, enabled: Boolean(model.shadow) },
       gloss: Boolean(model.gloss),
@@ -273,6 +304,9 @@ function toModelLayer(layer: IconState['layers'][number]): ModelLayer {
     opacity: layer.transform.opacity,
     shadow: 'shadow' in c ? c.shadow : false,
     clip: layer.clip,
+    glowColor: layer.effects.glow?.color ?? '',
+    outlineColor: layer.effects.outline?.color ?? '',
+    tintColor: layer.effects.tint?.color ?? '',
   };
 }
 
@@ -288,6 +322,7 @@ export function toModelIcon(icon: IconState): ModelIcon {
     fillType: bg.fill.type,
     color1: bg.fill.color1,
     color2: bg.fill.color2,
+    color3: bg.fill.stops[0]?.color ?? '',
     angle: bg.fill.angle,
     borderWidth: bg.border.width,
     borderColor: bg.border.color,

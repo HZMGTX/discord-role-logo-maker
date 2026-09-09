@@ -59,6 +59,13 @@ function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+/** The color a glow should take, when the content has one of its own. */
+function contentColorOf(content: Content): string | null {
+  if (content.kind === 'symbol' || content.kind === 'text') return content.color;
+  if (content.kind === 'shape') return content.fill.color1;
+  return null;
+}
+
 function setContentColor(content: Content, color: string): boolean {
   if (content.kind === 'symbol' || content.kind === 'text') {
     content.color = color;
@@ -228,7 +235,12 @@ export function refineIcon(current: IconState, prompt: string): Refinement | nul
   }
   if (say(['glow', 'glowing', 'neon'])) {
     icon.background.shadow = { enabled: true, blur: 0.08, opacity: 0.6, dx: 0, dy: 0, color: icon.background.fill.color1 };
+    layer.effects.glow = { color: contentColorOf(layer.content) ?? '#ffffff', blur: 0.06, opacity: 0.75 };
     changes.push('added a glow');
+  }
+  if (say(['outline', 'outlined', 'stroke', 'edge']) && mentionsContent) {
+    layer.effects.outline = { width: 0.014, color: '#000000' };
+    changes.push('outlined it');
   }
   if (parsed.flags.gloss !== undefined && parsed.flags.gloss !== icon.background.gloss) {
     icon.background.gloss = parsed.flags.gloss;
@@ -316,7 +328,10 @@ export function refineIcon(current: IconState, prompt: string): Refinement | nul
     if (style.border !== undefined) icon.background.border.width = style.border ? Math.max(icon.background.border.width, 0.04) : 0;
     if (style.gloss !== undefined) icon.background.gloss = style.gloss;
     if (style.shadow !== undefined) icon.background.shadow.enabled = style.shadow;
-    if (style.glow) icon.background.shadow = { enabled: true, blur: 0.08, opacity: 0.6, dx: 0, dy: 0, color: icon.background.fill.color1 };
+    if (style.glow) {
+      icon.background.shadow = { enabled: true, blur: 0.08, opacity: 0.6, dx: 0, dy: 0, color: icon.background.fill.color1 };
+      layer.effects.glow = { color: contentColorOf(layer.content) ?? '#ffffff', blur: 0.06, opacity: 0.75 };
+    }
     if (style.contentColor) setContentColor(layer.content, style.contentColor);
     if (style.font && layer.content.kind === 'text') layer.content.font = style.font;
     changes.push(`made it ${style.label}`);

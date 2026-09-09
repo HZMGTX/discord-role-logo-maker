@@ -67,6 +67,9 @@ function modelLayer(overrides: Record<string, unknown> = {}) {
     opacity: 1,
     shadow: false,
     clip: true,
+    glowColor: '',
+    outlineColor: '',
+    tintColor: '',
     ...overrides,
   };
 }
@@ -105,6 +108,36 @@ describe('model icon conversion', () => {
     expect(back.layers[1]?.content).toMatchObject({ kind: 'symbol', symbol: 'trophy', color: '#f1c40f' });
   });
 
+  it('carries layer effects and a third gradient color both ways', () => {
+    const icon = toIconState({
+      shape: 'circle',
+      cornerRadius: 0.25,
+      sides: 6,
+      innerRatio: 0.62,
+      shapeRotation: 0,
+      fillType: 'linear',
+      color1: '#ff0000',
+      color2: '#0000ff',
+      color3: '#00FF00',
+      angle: 135,
+      borderWidth: 0,
+      borderColor: '#ffffff',
+      shadow: false,
+      gloss: false,
+      layers: [modelLayer({ glowColor: '#FFAA00', outlineColor: 'not a color', tintColor: '#123456' })],
+    });
+    expect(icon.background.fill.stops).toEqual([{ offset: 0.5, color: '#00ff00' }]);
+    expect(icon.layers[0]?.effects.glow).toMatchObject({ color: '#ffaa00' });
+    expect(icon.layers[0]?.effects.outline).toBeNull();
+    expect(icon.layers[0]?.effects.tint).toMatchObject({ color: '#123456' });
+
+    const back = toModelIcon(icon);
+    expect(back.color3).toBe('#00ff00');
+    expect(back.layers[0]?.glowColor).toBe('#ffaa00');
+    expect(back.layers[0]?.outlineColor).toBe('');
+    expect(back.layers[0]?.tintColor).toBe('#123456');
+  });
+
   it('cleans up sloppy model output', () => {
     const icon = toIconState({
       shape: 'badge',
@@ -115,6 +148,7 @@ describe('model icon conversion', () => {
       fillType: 'linear',
       color1: 'red',
       color2: '#ABCDEF',
+      color3: '',
       angle: 720,
       borderWidth: 5,
       borderColor: 'nope',
