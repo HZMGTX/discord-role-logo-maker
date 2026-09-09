@@ -174,6 +174,7 @@ function buildIngredients(parsed: ParsedPrompt): Ingredients {
         kind: 'text',
         text: parsed.text,
         font: f,
+        customFont: null,
         weight: 900,
         color: '#ffffff',
         letterSpacing: 0.02,

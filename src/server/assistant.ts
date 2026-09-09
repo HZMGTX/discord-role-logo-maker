@@ -9,6 +9,7 @@ import {
   FONTS,
   SHAPES,
   SYMBOL_IDS,
+  isValidFontName,
   type Content,
   type FontId,
   type IconState,
@@ -46,6 +47,11 @@ const ModelIconSchema = z.object({
   emoji: z.string().describe('exactly one Unicode emoji when contentKind is emoji, else empty'),
   text: z.string().describe('1-4 characters when contentKind is text, else empty'),
   font: z.enum(FONT_IDS),
+  customFont: z
+    .string()
+    .describe(
+      'Any Google Font family name to use instead of the font field, e.g. "Orbitron" or "Rampart One". Empty string to use the font field.',
+    ),
   symbol: z.enum(SYMBOL_IDS),
   contentColor: z.string().describe('#rrggbb for text and symbols; emoji keep their own colors'),
   contentShadow: z.boolean(),
@@ -128,6 +134,7 @@ export function toIconState(model: ModelIcon): IconState {
         kind: 'text',
         text: Array.from(model.text.trim()).slice(0, 8).join('') || 'A',
         font: model.font,
+        customFont: isValidFontName(model.customFont ?? '') ? model.customFont.trim() : null,
         weight: 900,
         color: hex(model.contentColor, '#ffffff'),
         letterSpacing: 0.02,
@@ -177,6 +184,7 @@ export function toModelIcon(icon: IconState): ModelIcon {
     emoji: c.kind === 'emoji' ? c.emoji : '',
     text: c.kind === 'text' ? c.text : '',
     font: c.kind === 'text' ? c.font : 'inter',
+    customFont: c.kind === 'text' ? (c.customFont ?? '') : '',
     symbol: c.kind === 'symbol' ? c.symbol : 'star',
     contentColor: c.kind === 'text' || c.kind === 'symbol' ? c.color : '#ffffff',
     contentShadow: 'shadow' in c ? c.shadow : false,

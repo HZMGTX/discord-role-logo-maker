@@ -84,6 +84,13 @@ export type FontId = (typeof FONTS)[number]['id'];
 export type FontWeight = 400 | 700 | 900;
 export const FONT_WEIGHTS: readonly FontWeight[] = [400, 700, 900];
 
+/** Font family names are put into a CSS font shorthand and a URL, so keep them plain. */
+export const FONT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 '-]{0,39}$/;
+
+export function isValidFontName(name: string): boolean {
+  return FONT_NAME_PATTERN.test(name.trim());
+}
+
 export function fontById(id: FontId): (typeof FONTS)[number] {
   return FONTS.find((f) => f.id === id) ?? FONTS[0];
 }
@@ -119,6 +126,8 @@ export type Content =
       kind: 'text';
       text: string;
       font: FontId;
+      /** Any Google Font family name, loaded on demand; overrides `font` when set. */
+      customFont: string | null;
       weight: FontWeight;
       color: string;
       /** Fraction of the font size. */

@@ -81,10 +81,11 @@ function drawText(
 ): ContentResult {
   const text = content.text.trim();
   if (!text) return DONE;
-  const font = fontById(content.font);
-  const weight = pickWeight(font.weights, content.weight);
-  const family = `"${font.family}", sans-serif`;
-  if (!resources.ensureFont(`${weight} 32px "${font.family}"`)) {
+  const preset = fontById(content.font);
+  const familyName = content.customFont ?? preset.family;
+  const weight = content.customFont ? content.weight : pickWeight(preset.weights, content.weight);
+  const family = `"${familyName}", sans-serif`;
+  if (!resources.ensureFontFamily(familyName, weight)) {
     return { pending: true, emojiFallback: false };
   }
 

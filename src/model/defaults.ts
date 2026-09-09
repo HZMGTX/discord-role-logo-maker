@@ -35,6 +35,7 @@ export function defaultContent(kind: ContentKind, prev?: Content): Content {
         kind: 'text',
         text: 'A',
         font: 'inter',
+        customFont: null,
         weight: 900,
         color: prevColor,
         letterSpacing: 0,

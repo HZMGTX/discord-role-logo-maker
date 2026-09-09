@@ -67,6 +67,7 @@ describe('model icon conversion', () => {
       emoji: 'a frog 🐸 please',
       text: '',
       font: 'inter',
+      customFont: '',
       symbol: 'star',
       contentColor: '#ffffff',
       contentShadow: false,
@@ -81,6 +82,23 @@ describe('model icon conversion', () => {
     expect(icon.content).toEqual({ kind: 'emoji', emoji: '🐸', shadow: false });
     expect(icon.transform.scale).toBe(1.5);
     expect(sanitizeIcon(JSON.parse(JSON.stringify(icon)))).toEqual(icon);
+  });
+
+  it('accepts a named Google Font and rejects an unsafe one', () => {
+    const good = toIconState({
+      ...toModelIcon(DEFAULT_ICON),
+      contentKind: 'text',
+      text: 'GG',
+      customFont: 'Rampart One',
+    });
+    expect(good.content).toMatchObject({ kind: 'text', customFont: 'Rampart One' });
+    const bad = toIconState({
+      ...toModelIcon(DEFAULT_ICON),
+      contentKind: 'text',
+      text: 'GG',
+      customFont: 'Evil"; background: url(x)',
+    });
+    expect(bad.content).toMatchObject({ kind: 'text', customFont: null });
   });
 
   it('maps text and symbol content', () => {

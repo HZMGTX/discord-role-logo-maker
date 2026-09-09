@@ -41,6 +41,7 @@ export const PRESETS: readonly Preset[] = [
       kind: 'text',
       text: 'VIP',
       font: 'bangers',
+      customFont: null,
       weight: 400,
       color: '#3d2b00',
       letterSpacing: 0.02,

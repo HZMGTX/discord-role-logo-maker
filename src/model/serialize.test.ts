@@ -84,6 +84,15 @@ describe('sanitizeIcon', () => {
     expect(sanitizeIcon({}).sides).toBe(DEFAULT_ICON.sides);
   });
 
+  it('only accepts a plain font family name', () => {
+    const ok = sanitizeIcon({ content: { kind: 'text', text: 'A', customFont: 'Comic Neue' } });
+    expect(ok.content).toMatchObject({ kind: 'text', customFont: 'Comic Neue' });
+    for (const bad of ['a"; }', 'x'.repeat(60), '', '  ', 42, null]) {
+      const icon = sanitizeIcon({ content: { kind: 'text', text: 'A', customFont: bad } });
+      expect(icon.content).toMatchObject({ kind: 'text', customFont: null });
+    }
+  });
+
   it('returns the defaults for non-objects', () => {
     expect(sanitizeIcon(null)).toEqual(DEFAULT_ICON);
     expect(sanitizeIcon('x')).toEqual(DEFAULT_ICON);

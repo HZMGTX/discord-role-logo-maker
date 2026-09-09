@@ -74,7 +74,17 @@ function pickContent(parsed: ParsedPrompt, current: Content): { content: Content
     const base =
       current.kind === 'text'
         ? current
-        : { kind: 'text' as const, text: '', font: 'inter' as const, weight: 900 as const, color: '#ffffff', letterSpacing: 0.02, stroke: null, shadow: false };
+        : {
+            kind: 'text' as const,
+            text: '',
+            font: 'inter' as const,
+            customFont: null,
+            weight: 900 as const,
+            color: '#ffffff',
+            letterSpacing: 0.02,
+            stroke: null,
+            shadow: false,
+          };
     return { content: { ...base, text: parsed.text }, label: `“${parsed.text}”` };
   }
   const theme = parsed.themes[0]?.theme;

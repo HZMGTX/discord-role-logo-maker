@@ -7,6 +7,7 @@ import {
   RANGES,
   SHAPES,
   SYMBOL_IDS,
+  isValidFontName,
   type Content,
   type FontId,
   type FontWeight,
@@ -64,6 +65,10 @@ export function sanitizeContent(raw: unknown): Content {
         kind: 'text',
         text: str(raw.text, 'A', 8),
         font: oneOf(raw.font, FONT_IDS, 'inter'),
+        customFont:
+          typeof raw.customFont === 'string' && isValidFontName(raw.customFont)
+            ? raw.customFont.trim()
+            : null,
         weight,
         color: color(raw.color, '#ffffff'),
         letterSpacing: num(raw.letterSpacing, 0, RANGES.letterSpacing),
