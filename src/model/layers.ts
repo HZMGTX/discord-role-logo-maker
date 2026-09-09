@@ -3,6 +3,19 @@ import { MAX_LAYERS, type Content, type IconState, type Layer } from './types';
 
 /** Pure helpers for the layer stack. `layers[0]` is the bottom of the stack. */
 
+/**
+ * An id no layer in `icon` is already using. The counter behind `nextLayerId`
+ * restarts with the page, so a design restored from storage or opened from a
+ * link can already hold the id it is about to hand out. Two layers sharing an
+ * id would make selecting, deleting and masking pick the wrong one.
+ */
+function freshLayerId(icon: IconState): string {
+  const used = new Set(icon.layers.map((l) => l.id));
+  let id = nextLayerId();
+  while (used.has(id)) id = nextLayerId();
+  return id;
+}
+
 export function findLayer(icon: IconState, id: string | null): Layer | null {
   if (!id) return null;
   return icon.layers.find((l) => l.id === id) ?? null;
@@ -19,7 +32,7 @@ export function canAddLayer(icon: IconState): boolean {
 /** Adds a layer on top and returns both the new state and the new layer's id. */
 export function addLayer(icon: IconState, content: Content): { icon: IconState; id: string } {
   if (!canAddLayer(icon)) return { icon, id: icon.layers[icon.layers.length - 1]?.id ?? '' };
-  const layer = makeLayer(content);
+  const layer = makeLayer(content, { id: freshLayerId(icon) });
   return { icon: { ...icon, layers: [...icon.layers, layer] }, id: layer.id };
 }
 
@@ -27,7 +40,7 @@ export function duplicateLayer(icon: IconState, id: string): { icon: IconState; 
   const index = layerIndex(icon, id);
   const source = icon.layers[index];
   if (index < 0 || !source || !canAddLayer(icon)) return { icon, id };
-  const copy: Layer = { ...structuredClone(source), id: nextLayerId() };
+  const copy: Layer = { ...structuredClone(source), id: freshLayerId(icon) };
   const layers = [...icon.layers];
   layers.splice(index + 1, 0, copy);
   return { icon: { ...icon, layers }, id: copy.id };
@@ -37,7 +50,11 @@ export function duplicateLayer(icon: IconState, id: string): { icon: IconState; 
 export function removeLayer(icon: IconState, id: string): { icon: IconState; id: string | null } {
   const index = layerIndex(icon, id);
   if (index < 0) return { icon, id: null };
-  const layers = icon.layers.filter((l) => l.id !== id);
+  // Anything masked to the departing layer loses its mask now rather than
+  // holding a name that a later layer could pick up and answer to.
+  const layers = icon.layers
+    .filter((l) => l.id !== id)
+    .map((l) => (l.clipTo === id ? { ...l, clipTo: null } : l));
   const next = layers[Math.min(index, layers.length - 1)];
   return { icon: { ...icon, layers }, id: next ? next.id : null };
 }
@@ -62,7 +79,10 @@ export function moveLayer(icon: IconState, id: string, delta: number): IconState
 export function ensureTopLayer(icon: IconState): Layer {
   const existing = icon.layers[icon.layers.length - 1];
   if (existing) return existing;
-  const layer = makeLayer({ kind: 'emoji', emoji: '\u{2B50}', shadow: false });
+  const layer = makeLayer(
+    { kind: 'emoji', emoji: '\u{2B50}', shadow: false },
+    { id: freshLayerId(icon) },
+  );
   icon.layers.push(layer);
   return layer;
 }
